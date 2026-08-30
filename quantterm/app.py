@@ -28,7 +28,7 @@ from textual.widgets import (
     Static,
 )
 
-from . import backtest, data, screener
+from . import backtest, data, propfirm, screener
 from .widgets import OSCILLATORS, EquityChart, OscillatorChart, PriceChart
 
 PERIODS = ["1mo", "3mo", "6mo", "1y", "2y", "5y", "max"]
@@ -75,6 +75,7 @@ class QuantTerminal(App):
 
     #quote {{ height: 5; content-align: left middle; }}
     #metrics {{ color: {GREEN}; height: auto; }}
+    #prop {{ height: auto; }}
     #screen_table {{ height: 1fr; }}
 
     DataTable {{ background: #000; }}
@@ -108,6 +109,9 @@ class QuantTerminal(App):
             yield Label("OSCILL.")
             yield Select([(o, o) for o in OSCILLATORS], value="rsi",
                          id="oscillator", allow_blank=False)
+            yield Label("PROP")
+            yield Select([(k, k) for k in propfirm.PRESETS], value="2step-p1",
+                         id="preset", allow_blank=False)
         with Horizontal(id="body"):
             with VerticalScroll(id="left"):
                 yield PriceChart(id="price_chart")
@@ -119,6 +123,8 @@ class QuantTerminal(App):
                 yield DataTable(id="screen_table")
                 yield Label("● BACKTEST", classes="panel-title")
                 yield Static("", classes="panel", id="metrics")
+                yield Label("● PROP FIRM", classes="panel-title")
+                yield Static("—", classes="panel", id="prop")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -142,6 +148,10 @@ class QuantTerminal(App):
     @on(Select.Changed, "#oscillator")
     def _on_oscillator(self) -> None:
         self.render_oscillator()
+
+    @on(Select.Changed, "#preset")
+    def _on_preset(self) -> None:
+        self.load_backtest()
 
     @on(DataTable.RowSelected, "#screen_table")
     def _on_row(self, event: DataTable.RowSelected) -> None:
@@ -173,6 +183,9 @@ class QuantTerminal(App):
 
     def _oscillator(self) -> str:
         return self.query_one("#oscillator", Select).value
+
+    def _preset(self) -> str:
+        return self.query_one("#preset", Select).value
 
     def render_oscillator(self) -> None:
         df = getattr(self, "_df", None)
@@ -226,6 +239,10 @@ class QuantTerminal(App):
         )
         self.query_one("#metrics", Static).update(_metrics_markup(result.metrics))
 
+        rules = propfirm.PRESETS[self._preset()]
+        verdict = propfirm.evaluate(result.equity, rules, positions=result.positions)
+        self.query_one("#prop", Static).update(_prop_markup(verdict))
+
     @work(exclusive=True, group="screener")
     async def load_screener(self) -> None:
         table = self.query_one("#screen_table", DataTable)
@@ -278,6 +295,19 @@ def _metrics_markup(m: dict) -> str:
         line("Win rate", f"{m['win_rate']:.2%}"),
         line("Nb trades", f"{m['n_trades']}"),
     ])
+
+
+def _prop_markup(v: "propfirm.PropFirmResult") -> str:
+    badge = f"[b {GREEN}]✓ RÉUSSI[/]" if v.passed else f"[b {RED}]✗ ÉCHOUÉ[/]"
+    dd_c = GREEN if v.max_drawdown > -v.rules.max_total_loss else RED
+    day_c = GREEN if v.worst_daily_loss > -v.rules.max_daily_loss else RED
+    return (
+        f"[{AMBER}]{v.rules.name}[/]  {badge}\n"
+        f"[{DIM}]{v.reason}[/]\n"
+        f"[{DIM}]Pire jour[/] [{day_c}]{v.worst_daily_loss:+.2%}[/]  "
+        f"[{DIM}]DD[/] [{dd_c}]{v.max_drawdown:+.2%}[/]  "
+        f"[{DIM}]jours[/] {v.trading_days}"
+    )
 
 
 def main() -> None:

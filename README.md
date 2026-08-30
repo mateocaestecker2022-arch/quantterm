@@ -10,6 +10,7 @@ backtesting de stratégies et screener d'univers.
 - **Graphiques** — chandeliers + moyennes mobiles directement dans le terminal ([plotext](https://github.com/piccolomo/plotext)).
 - **Indicateurs** (module `indicators`) — tendance/prix : SMA, EMA, WMA, MACD, Bollinger, Keltner, Donchian ; oscillateurs : RSI, stochastique, Williams %R, CCI, MFI, ROC, momentum, z-score ; volatilité/volume : ATR, True Range, volatilité annualisée, OBV, VWAP ; force de tendance : ADX/DMI.
 - **Backtesting** — moteur vectorisé léger, 7 stratégies d'exemple (SMA, RSI, MACD, Bollinger, Donchian, ADX, buy & hold) et métriques (rendement, CAGR, Sharpe, max drawdown, win rate).
+- **Challenge prop firm** (module `propfirm`) — rejoue la courbe d'equity jour par jour et dit **RÉUSSI / ÉCHOUÉ** contre les règles (objectif de profit, perte journalière max, perte totale max statique ou *trailing*, jours de trading min, limite de temps). Presets d'exemple à ajuster à ta prop firm.
 - **Screener** — scan d'un univers d'actifs avec filtres (RSI, tendance, performance).
 - **Interface TUI** ([Textual](https://textual.textualize.io/)) + accès **CLI** rapide.
 
@@ -45,6 +46,10 @@ le champ ticker, `r` rafraîchit, `s` relance le scan, `q` quitte.
 python -m quantterm quote AAPL
 python -m quantterm backtest AAPL --strategy sma --period 2y
 python -m quantterm screen --period 1y
+
+# Challenge prop firm
+python -m quantterm prop AAPL --strategy macd --preset 1step --period 2y
+python -m quantterm prop NVDA --scan        # toutes les combos qui valident
 ```
 
 ## Tests

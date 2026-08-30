@@ -28,6 +28,14 @@ def main() -> None:
     p_q = sub.add_parser("quote", help="Cotation rapide d'un ticker")
     p_q.add_argument("ticker")
 
+    p_pf = sub.add_parser("prop", help="Évaluation challenge prop firm")
+    p_pf.add_argument("ticker")
+    p_pf.add_argument("--strategy", default="sma")
+    p_pf.add_argument("--preset", default="2step-p1", help="2step-p1 | 2step-p2 | 1step | instant")
+    p_pf.add_argument("--period", default="2y")
+    p_pf.add_argument("--scan", action="store_true",
+                      help="Cherche toutes les stratégies/presets qui valident pour ce ticker")
+
     args = parser.parse_args()
 
     if args.cmd == "backtest":
@@ -54,6 +62,34 @@ def main() -> None:
 
         q = data.latest_quote(args.ticker)
         print(f"{q['ticker']} : {q['price']:.2f} ({q['change']:+.2f} / {q['pct']:+.2f}%)")
+    elif args.cmd == "prop":
+        from . import backtest, data, propfirm
+
+        df = data.get_history(args.ticker, period=args.period)
+        if args.scan:
+            print(f"\nChallenges validés pour {args.ticker.upper()} ({args.period}) :\n")
+            found = False
+            for sn, strat in backtest.STRATEGIES.items():
+                res = backtest.run(df, strat)
+                for pn, rules in propfirm.PRESETS.items():
+                    r = propfirm.evaluate(res.equity, rules, positions=res.positions)
+                    if r.passed:
+                        found = True
+                        print(f"  ✓ {sn:9} / {pn:9} — {r.reason} "
+                              f"(pire jour {r.worst_daily_loss:+.1%}, DD {r.max_drawdown:+.1%})")
+            if not found:
+                print("  Aucune combinaison ne valide sur cette période.")
+        else:
+            strat = backtest.STRATEGIES.get(args.strategy)
+            rules = propfirm.PRESETS.get(args.preset)
+            if strat is None:
+                sys.exit(f"Stratégie inconnue : {args.strategy}")
+            if rules is None:
+                sys.exit(f"Preset inconnu : {args.preset} (dispo : {', '.join(propfirm.PRESETS)})")
+            res = backtest.run(df, strat)
+            r = propfirm.evaluate(res.equity, rules, positions=res.positions)
+            print(f"\nProp firm — {args.ticker.upper()} / '{args.strategy}' / {args.preset} ({args.period})\n")
+            print(r.summary())
     else:
         # Pas de sous-commande → interface TUI.
         from .app import main as run_app
