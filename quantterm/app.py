@@ -1,8 +1,11 @@
-"""Application TUI (Textual) du terminal quant.
+"""Application TUI (Textual) du terminal quant — disposition « Bloomberg ».
 
-Trois onglets : graphique de prix, backtest de stratégie et screener d'univers.
-Les appels réseau (yfinance) sont exécutés dans des threads pour ne pas bloquer
-l'interface.
+Interface dense, tout visible en même temps :
+- barre de contrôles en haut (ticker, période, stratégie, oscillateur) ;
+- colonne gauche : graphique de prix + oscillateur + courbe d'equity ;
+- colonne droite : cotation, watchlist/screener cliquable, métriques de backtest.
+
+Les appels réseau (yfinance) tournent dans des threads pour ne pas bloquer l'UI.
 """
 
 from __future__ import annotations
@@ -10,9 +13,10 @@ from __future__ import annotations
 import asyncio
 
 import pandas as pd
+from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import (
     DataTable,
     Footer,
@@ -21,67 +25,100 @@ from textual.widgets import (
     Label,
     Select,
     Static,
-    TabbedContent,
-    TabPane,
 )
 
 from . import backtest, charts, data, screener
 
 PERIODS = ["1mo", "3mo", "6mo", "1y", "2y", "5y", "max"]
 
+# Palette « terminal financier » : fond noir, accents ambre, vert/rouge directionnels.
+AMBER = "#ffb000"
+GREEN = "#00d75f"
+RED = "#ff3b3b"
+DIM = "#7a7a7a"
+
+
+def _color(x: float) -> str:
+    return GREEN if x >= 0 else RED
+
 
 class QuantTerminal(App):
-    """Terminal quant dans le terminal."""
+    """Terminal quant dense, style Bloomberg."""
 
-    CSS = """
-    #controls { height: auto; padding: 0 1; }
-    #controls Input { width: 24; }
-    #controls Select { width: 18; }
-    .chart { padding: 1; }
-    #metrics { padding: 1; color: $success; }
-    DataTable { height: 1fr; }
+    CSS = f"""
+    Screen {{ background: #000000; }}
+
+    #controls {{
+        height: 3;
+        background: #0d0d0d;
+        border-bottom: heavy {AMBER};
+        padding: 0 1;
+        align-vertical: middle;
+    }}
+    #controls Input {{ width: 22; border: tall {AMBER}; background: #000; }}
+    #controls Select {{ width: 16; }}
+    #controls Label {{ color: {AMBER}; text-style: bold; padding: 0 1; }}
+
+    #body {{ height: 1fr; }}
+
+    #left {{ width: 3fr; }}
+    #right {{ width: 54; border-left: heavy {AMBER}; padding: 0 1; }}
+
+    .panel {{ border: round {DIM}; padding: 0 1; margin: 0 0 1 0; }}
+    .panel-title {{ color: {AMBER}; text-style: bold; }}
+
+    #quote {{ height: 5; content-align: left middle; }}
+    #metrics {{ color: {GREEN}; }}
+    #screen_table {{ height: 1fr; }}
+
+    DataTable {{ background: #000; }}
+    DataTable > .datatable--header {{ background: #0d0d0d; color: {AMBER}; text-style: bold; }}
+    DataTable > .datatable--cursor {{ background: {AMBER}; color: #000; }}
+
+    Header {{ background: #0d0d0d; color: {AMBER}; }}
+    Footer {{ background: #0d0d0d; }}
     """
 
     BINDINGS = [
         ("q", "quit", "Quitter"),
         ("r", "refresh", "Rafraîchir"),
+        ("f", "focus_ticker", "Ticker"),
+        ("s", "rescan", "Re-scan"),
     ]
 
-    TITLE = "QuantTerm"
-    SUB_TITLE = "Terminal quant"
+    TITLE = "QUANTTERM"
+    SUB_TITLE = "terminal quant"
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         with Horizontal(id="controls"):
-            yield Input(value="AAPL", placeholder="Ticker (ex. AAPL, BTC-USD)", id="ticker")
-            yield Select(
-                [(p, p) for p in PERIODS], value="1y", id="period", allow_blank=False
-            )
-            yield Select(
-                [(k, k) for k in backtest.STRATEGIES], value="sma", id="strategy",
-                allow_blank=False,
-            )
-            yield Select(
-                [(o, o) for o in charts.OSCILLATORS], value="rsi", id="oscillator",
-                allow_blank=False,
-            )
-        with TabbedContent(initial="tab-chart"):
-            with TabPane("Graphique", id="tab-chart"):
-                with VerticalScroll():
-                    yield Static("Entre un ticker puis appuie sur Entrée.", classes="chart", id="price_chart")
-                    yield Static("", classes="chart", id="osc_chart")
-            with TabPane("Backtest", id="tab-backtest"):
-                with VerticalScroll():
-                    yield Static("", classes="chart", id="equity_chart")
-                    yield Static("", id="metrics")
-            with TabPane("Screener", id="tab-screener"):
-                yield Label("Scan de l'univers par défaut (peut prendre quelques secondes)...", id="screen_status")
+            yield Label("TICKER")
+            yield Input(value="AAPL", placeholder="AAPL, BTC-USD…", id="ticker")
+            yield Label("PÉRIODE")
+            yield Select([(p, p) for p in PERIODS], value="1y", id="period", allow_blank=False)
+            yield Label("STRATÉGIE")
+            yield Select([(k, k) for k in backtest.STRATEGIES], value="sma",
+                         id="strategy", allow_blank=False)
+            yield Label("OSCILL.")
+            yield Select([(o, o) for o in charts.OSCILLATORS], value="rsi",
+                         id="oscillator", allow_blank=False)
+        with Horizontal(id="body"):
+            with VerticalScroll(id="left"):
+                yield Static("Entre un ticker puis Entrée.", classes="panel", id="price_chart")
+                yield Static("", classes="panel", id="osc_chart")
+                yield Static("", classes="panel", id="equity_chart")
+            with Vertical(id="right"):
+                yield Static("", classes="panel", id="quote")
+                yield Label("● WATCHLIST", classes="panel-title")
                 yield DataTable(id="screen_table")
+                yield Label("● BACKTEST", classes="panel-title")
+                yield Static("", classes="panel", id="metrics")
         yield Footer()
 
     def on_mount(self) -> None:
         table = self.query_one("#screen_table", DataTable)
         table.cursor_type = "row"
+        table.zebra_stripes = True
         self.load_ticker()
         self.load_screener()
 
@@ -100,9 +137,22 @@ class QuantTerminal(App):
     def _on_oscillator(self) -> None:
         self.render_oscillator()
 
+    @on(DataTable.RowSelected, "#screen_table")
+    def _on_row(self, event: DataTable.RowSelected) -> None:
+        # Un clic sur la watchlist charge le ticker correspondant.
+        ticker = str(event.row_key.value) if event.row_key else None
+        if ticker:
+            self.query_one("#ticker", Input).value = ticker
+            self.load_ticker()
+
     def action_refresh(self) -> None:
         self.load_ticker()
+
+    def action_rescan(self) -> None:
         self.load_screener()
+
+    def action_focus_ticker(self) -> None:
+        self.query_one("#ticker", Input).focus()
 
     # ---- helpers -------------------------------------------------------- #
 
@@ -119,49 +169,63 @@ class QuantTerminal(App):
         return self.query_one("#oscillator", Select).value
 
     def _chart_width(self) -> int:
-        """Largeur de graphique adaptée à la fenêtre (évite le débordement plotext)."""
-        return max(40, self.size.width - 8)
+        """Largeur adaptée à la colonne de gauche (fenêtre moins colonne droite)."""
+        return max(40, self.size.width - 62)
 
     def render_oscillator(self) -> None:
-        """Redessine le panneau oscillateur à partir des données déjà chargées."""
         df = getattr(self, "_df", None)
-        panel = self.query_one("#osc_chart", Static)
         if df is None or df.empty:
             return
-        panel.update(
-            charts.oscillator_chart(df, self._oscillator(), width=self._chart_width(), height=14)
+        self.query_one("#osc_chart", Static).update(
+            charts.oscillator_chart(df, self._oscillator(), width=self._chart_width(), height=13)
+        )
+
+    def _render_quote(self, ticker: str, df: pd.DataFrame) -> None:
+        last = float(df["Close"].iloc[-1])
+        prev = float(df["Close"].iloc[-2]) if len(df) >= 2 else last
+        chg = last - prev
+        pct = (chg / prev * 100) if prev else 0.0
+        c = _color(chg)
+        arrow = "▲" if chg >= 0 else "▼"
+        hi = float(df["High"].iloc[-1])
+        lo = float(df["Low"].iloc[-1])
+        vol = float(df["Volume"].iloc[-1])
+        self.query_one("#quote", Static).update(
+            f"[b {AMBER}]{ticker}[/]\n"
+            f"[b {c}]{last:,.2f}[/]  [{c}]{arrow} {chg:+.2f} ({pct:+.2f}%)[/]\n"
+            f"[{DIM}]H[/] {hi:,.2f}  [{DIM}]L[/] {lo:,.2f}  [{DIM}]Vol[/] {vol:,.0f}"
         )
 
     def on_resize(self) -> None:
-        """Re-rend les graphiques déjà chargés à la nouvelle taille (sans réseau)."""
         df = getattr(self, "_df", None)
         if df is None or df.empty:
             return
         self.query_one("#price_chart", Static).update(
-            charts.price_chart(df, self._ticker(), width=self._chart_width(), height=24)
+            charts.price_chart(df, self._ticker(), width=self._chart_width(), height=22)
         )
         self.render_oscillator()
         eq = getattr(self, "_equity", None)
         if eq is not None:
             self.query_one("#equity_chart", Static).update(
-                charts.line_chart(eq, f"Equity — stratégie '{self._strategy()}' (base 1.0)",
-                                  width=self._chart_width(), height=18)
+                charts.line_chart(eq, f"Equity — '{self._strategy()}' (base 1.0)",
+                                  width=self._chart_width(), height=15)
             )
 
-    # ---- graphique de prix + backtest ---------------------------------- #
+    # ---- chargement ----------------------------------------------------- #
 
     @work(exclusive=True, group="ticker")
     async def load_ticker(self) -> None:
         ticker, period = self._ticker(), self._period()
         chart = self.query_one("#price_chart", Static)
-        chart.update(f"Chargement de {ticker}...")
+        chart.update(f"[{AMBER}]Chargement de {ticker}…[/]")
         try:
             df = await asyncio.to_thread(data.get_history, ticker, period)
         except Exception as exc:  # noqa: BLE001
-            chart.update(f"[red]Erreur : {exc}[/red]")
+            chart.update(f"[{RED}]Erreur : {exc}[/]")
             return
         self._df = df
-        chart.update(charts.price_chart(df, ticker, width=self._chart_width(), height=24))
+        chart.update(charts.price_chart(df, ticker, width=self._chart_width(), height=22))
+        self._render_quote(ticker, df)
         self.render_oscillator()
         self.load_backtest()
 
@@ -170,46 +234,67 @@ class QuantTerminal(App):
         df = getattr(self, "_df", None)
         if df is None or df.empty:
             return
-        strat = backtest.STRATEGIES[self._strategy()]
-        result = await asyncio.to_thread(backtest.run, df, strat)
+        name = self._strategy()
+        result = await asyncio.to_thread(backtest.run, df, backtest.STRATEGIES[name])
         self._equity = result.equity
         self.query_one("#equity_chart", Static).update(
-            charts.line_chart(result.equity, f"Equity — stratégie '{self._strategy()}' (base 1.0)",
-                              width=self._chart_width(), height=18)
+            charts.line_chart(result.equity, f"Equity — '{name}' (base 1.0)",
+                              width=self._chart_width(), height=15)
         )
-        self.query_one("#metrics", Static).update(result.summary())
-
-    # ---- screener ------------------------------------------------------- #
+        self.query_one("#metrics", Static).update(_metrics_markup(result.metrics))
 
     @work(exclusive=True, group="screener")
     async def load_screener(self) -> None:
-        status = self.query_one("#screen_status", Label)
         table = self.query_one("#screen_table", DataTable)
-        status.update("Scan en cours...")
         df = await asyncio.to_thread(screener.scan)
         table.clear(columns=True)
         if df.empty:
-            status.update("[red]Aucune donnée récupérée.[/red]")
             return
         df = screener.filter_screen(df, sort_by="perf_1m")
-        table.add_column("Ticker")
-        table.add_columns("Prix", "Perf 1s", "Perf 1m", "Perf 3m", "RSI", "Vol.", "Tendance")
+        table.add_column("SYM", key="sym")
+        table.add_column("PRIX")
+        table.add_column("1M")
+        table.add_column("RSI")
         for ticker, row in df.iterrows():
             table.add_row(
-                ticker,
-                f"{row['price']:.2f}",
-                _pct(row["perf_1w"]),
-                _pct(row["perf_1m"]),
-                _pct(row["perf_3m"]),
-                f"{row['rsi']:.0f}",
-                _pct(row["vol_ann"]),
-                str(row["trend"]),
+                Text(str(ticker), style=f"bold {AMBER}"),
+                Text(f"{row['price']:,.2f}"),
+                _pct_cell(row["perf_1m"]),
+                _rsi_cell(row["rsi"]),
+                key=str(ticker),
             )
-        status.update(f"{len(df)} actifs scannés — triés par performance 1 mois.")
 
 
-def _pct(x) -> str:
-    return "n/a" if pd.isna(x) else f"{x:+.1%}"
+# --------------------------------------------------------------------------- #
+# Rendu (helpers de formatage colorés)
+# --------------------------------------------------------------------------- #
+
+def _pct_cell(x) -> Text:
+    if pd.isna(x):
+        return Text("n/a", style=DIM)
+    return Text(f"{x:+.1%}", style=_color(x))
+
+
+def _rsi_cell(x) -> Text:
+    if pd.isna(x):
+        return Text("n/a", style=DIM)
+    style = RED if x > 70 else GREEN if x < 30 else "white"
+    return Text(f"{x:.0f}", style=style)
+
+
+def _metrics_markup(m: dict) -> str:
+    def line(label: str, value: str, val_color: str = "white") -> str:
+        return f"[{DIM}]{label:<14}[/] [{val_color}]{value}[/]"
+
+    return "\n".join([
+        line("Rendement", f"{m['total_return']:+.2%}", _color(m["total_return"])),
+        line("CAGR", f"{m['cagr']:+.2%}", _color(m["cagr"])),
+        line("Volatilité", f"{m['volatility']:.2%}"),
+        line("Sharpe", f"{m['sharpe']:.2f}", _color(m["sharpe"])),
+        line("Max drawdown", f"{m['max_drawdown']:.2%}", RED),
+        line("Win rate", f"{m['win_rate']:.2%}"),
+        line("Nb trades", f"{m['n_trades']}"),
+    ])
 
 
 def main() -> None:

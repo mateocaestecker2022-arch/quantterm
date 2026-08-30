@@ -9,6 +9,9 @@ venv/
 .cache/
 *.parquet
 
+# Aperçus générés
+preview.svg
+
 # OS / editor
 .DS_Store
 .idea/

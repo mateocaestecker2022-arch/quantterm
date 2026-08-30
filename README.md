@@ -30,10 +30,14 @@ pip install -r requirements.txt
 python -m quantterm
 ```
 
-Onglets : **Graphique** (chandeliers + SMA, avec panneau oscillateur au choix :
-RSI, MACD, stochastique, ATR, CCI, MFI, Williams %R, ADX), **Backtest** (equity +
-métriques), **Screener** (tableau triable). Saisis un ticker, choisis la période,
-la stratégie et l'oscillateur dans les menus. `r` rafraîchit, `q` quitte.
+Interface dense « Bloomberg », tout visible en même temps :
+- **colonne gauche** : chandeliers + SMA, panneau oscillateur (RSI, MACD,
+  stochastique, ATR, CCI, MFI, Williams %R, ADX) et courbe d'equity du backtest ;
+- **colonne droite** : cotation (dernier prix / variation / H-L-Vol), **watchlist
+  cliquable** (un clic charge le ticker) et métriques de backtest colorées.
+
+Barre du haut : ticker, période, stratégie, oscillateur. Raccourcis : `f` cible
+le champ ticker, `r` rafraîchit, `s` relance le scan, `q` quitte.
 
 ### En ligne de commande
 
