@@ -43,6 +43,18 @@ python -m quantterm backtest AAPL --strategy sma --period 2y
 python -m quantterm screen --period 1y
 ```
 
+## Tests
+
+Suite pytest hors-ligne (données OHLCV synthétiques, aucun appel réseau) :
+
+```bash
+pip install -e .[dev]        # ou: pip install pytest
+python -m pytest
+```
+
+Couvre les indicateurs (bornes, cohérence), le moteur de backtest (absence de
+look-ahead, effet des frais, métriques) et le screener (métriques + filtres).
+
 ## Architecture
 
 ```
