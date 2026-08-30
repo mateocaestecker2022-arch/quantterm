@@ -118,13 +118,35 @@ class QuantTerminal(App):
     def _oscillator(self) -> str:
         return self.query_one("#oscillator", Select).value
 
+    def _chart_width(self) -> int:
+        """Largeur de graphique adaptée à la fenêtre (évite le débordement plotext)."""
+        return max(40, self.size.width - 8)
+
     def render_oscillator(self) -> None:
         """Redessine le panneau oscillateur à partir des données déjà chargées."""
         df = getattr(self, "_df", None)
         panel = self.query_one("#osc_chart", Static)
         if df is None or df.empty:
             return
-        panel.update(charts.oscillator_chart(df, self._oscillator()))
+        panel.update(
+            charts.oscillator_chart(df, self._oscillator(), width=self._chart_width(), height=14)
+        )
+
+    def on_resize(self) -> None:
+        """Re-rend les graphiques déjà chargés à la nouvelle taille (sans réseau)."""
+        df = getattr(self, "_df", None)
+        if df is None or df.empty:
+            return
+        self.query_one("#price_chart", Static).update(
+            charts.price_chart(df, self._ticker(), width=self._chart_width(), height=24)
+        )
+        self.render_oscillator()
+        eq = getattr(self, "_equity", None)
+        if eq is not None:
+            self.query_one("#equity_chart", Static).update(
+                charts.line_chart(eq, f"Equity — stratégie '{self._strategy()}' (base 1.0)",
+                                  width=self._chart_width(), height=18)
+            )
 
     # ---- graphique de prix + backtest ---------------------------------- #
 
@@ -139,7 +161,7 @@ class QuantTerminal(App):
             chart.update(f"[red]Erreur : {exc}[/red]")
             return
         self._df = df
-        chart.update(charts.price_chart(df, ticker))
+        chart.update(charts.price_chart(df, ticker, width=self._chart_width(), height=24))
         self.render_oscillator()
         self.load_backtest()
 
@@ -150,8 +172,10 @@ class QuantTerminal(App):
             return
         strat = backtest.STRATEGIES[self._strategy()]
         result = await asyncio.to_thread(backtest.run, df, strat)
+        self._equity = result.equity
         self.query_one("#equity_chart", Static).update(
-            charts.line_chart(result.equity, f"Equity — stratégie '{self._strategy()}' (base 1.0)")
+            charts.line_chart(result.equity, f"Equity — stratégie '{self._strategy()}' (base 1.0)",
+                              width=self._chart_width(), height=18)
         )
         self.query_one("#metrics", Static).update(result.summary())
 
