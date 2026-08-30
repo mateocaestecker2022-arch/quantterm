@@ -3,3 +3,4 @@ numpy>=1.26
 yfinance>=0.2
 textual>=0.80
 plotext>=5.2,<6
+textual-plotext>=0.7

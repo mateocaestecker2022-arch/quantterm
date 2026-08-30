@@ -5,7 +5,8 @@ Interface dense, tout visible en même temps :
 - colonne gauche : graphique de prix + oscillateur + courbe d'equity ;
 - colonne droite : cotation, watchlist/screener cliquable, métriques de backtest.
 
-Les appels réseau (yfinance) tournent dans des threads pour ne pas bloquer l'UI.
+Les graphiques utilisent des widgets ``textual-plotext`` qui se redimensionnent
+automatiquement. Les appels réseau (yfinance) tournent dans des threads.
 """
 
 from __future__ import annotations
@@ -27,7 +28,8 @@ from textual.widgets import (
     Static,
 )
 
-from . import backtest, charts, data, screener
+from . import backtest, data, screener
+from .widgets import OSCILLATORS, EquityChart, OscillatorChart, PriceChart
 
 PERIODS = ["1mo", "3mo", "6mo", "1y", "2y", "5y", "max"]
 
@@ -62,13 +64,17 @@ class QuantTerminal(App):
     #body {{ height: 1fr; }}
 
     #left {{ width: 3fr; }}
-    #right {{ width: 54; border-left: heavy {AMBER}; padding: 0 1; }}
+    #right {{ width: 52; border-left: heavy {AMBER}; padding: 0 1; }}
+
+    #price_chart {{ height: 24; border: round {DIM}; }}
+    #osc_chart {{ height: 15; border: round {DIM}; }}
+    #equity_chart {{ height: 17; border: round {DIM}; }}
 
     .panel {{ border: round {DIM}; padding: 0 1; margin: 0 0 1 0; }}
     .panel-title {{ color: {AMBER}; text-style: bold; }}
 
     #quote {{ height: 5; content-align: left middle; }}
-    #metrics {{ color: {GREEN}; }}
+    #metrics {{ color: {GREEN}; height: auto; }}
     #screen_table {{ height: 1fr; }}
 
     DataTable {{ background: #000; }}
@@ -100,15 +106,15 @@ class QuantTerminal(App):
             yield Select([(k, k) for k in backtest.STRATEGIES], value="sma",
                          id="strategy", allow_blank=False)
             yield Label("OSCILL.")
-            yield Select([(o, o) for o in charts.OSCILLATORS], value="rsi",
+            yield Select([(o, o) for o in OSCILLATORS], value="rsi",
                          id="oscillator", allow_blank=False)
         with Horizontal(id="body"):
             with VerticalScroll(id="left"):
-                yield Static("Entre un ticker puis Entrée.", classes="panel", id="price_chart")
-                yield Static("", classes="panel", id="osc_chart")
-                yield Static("", classes="panel", id="equity_chart")
+                yield PriceChart(id="price_chart")
+                yield OscillatorChart(id="osc_chart")
+                yield EquityChart(id="equity_chart")
             with Vertical(id="right"):
-                yield Static("", classes="panel", id="quote")
+                yield Static("Chargement…", classes="panel", id="quote")
                 yield Label("● WATCHLIST", classes="panel-title")
                 yield DataTable(id="screen_table")
                 yield Label("● BACKTEST", classes="panel-title")
@@ -168,17 +174,11 @@ class QuantTerminal(App):
     def _oscillator(self) -> str:
         return self.query_one("#oscillator", Select).value
 
-    def _chart_width(self) -> int:
-        """Largeur adaptée à la colonne de gauche (fenêtre moins colonne droite)."""
-        return max(40, self.size.width - 62)
-
     def render_oscillator(self) -> None:
         df = getattr(self, "_df", None)
         if df is None or df.empty:
             return
-        self.query_one("#osc_chart", Static).update(
-            charts.oscillator_chart(df, self._oscillator(), width=self._chart_width(), height=13)
-        )
+        self.query_one("#osc_chart", OscillatorChart).show(df, self._oscillator())
 
     def _render_quote(self, ticker: str, df: pd.DataFrame) -> None:
         last = float(df["Close"].iloc[-1])
@@ -196,35 +196,20 @@ class QuantTerminal(App):
             f"[{DIM}]H[/] {hi:,.2f}  [{DIM}]L[/] {lo:,.2f}  [{DIM}]Vol[/] {vol:,.0f}"
         )
 
-    def on_resize(self) -> None:
-        df = getattr(self, "_df", None)
-        if df is None or df.empty:
-            return
-        self.query_one("#price_chart", Static).update(
-            charts.price_chart(df, self._ticker(), width=self._chart_width(), height=22)
-        )
-        self.render_oscillator()
-        eq = getattr(self, "_equity", None)
-        if eq is not None:
-            self.query_one("#equity_chart", Static).update(
-                charts.line_chart(eq, f"Equity — '{self._strategy()}' (base 1.0)",
-                                  width=self._chart_width(), height=15)
-            )
-
     # ---- chargement ----------------------------------------------------- #
 
     @work(exclusive=True, group="ticker")
     async def load_ticker(self) -> None:
         ticker, period = self._ticker(), self._period()
-        chart = self.query_one("#price_chart", Static)
-        chart.update(f"[{AMBER}]Chargement de {ticker}…[/]")
+        quote = self.query_one("#quote", Static)
+        quote.update(f"[{AMBER}]Chargement de {ticker}…[/]")
         try:
             df = await asyncio.to_thread(data.get_history, ticker, period)
         except Exception as exc:  # noqa: BLE001
-            chart.update(f"[{RED}]Erreur : {exc}[/]")
+            quote.update(f"[{RED}]Erreur : {exc}[/]")
             return
         self._df = df
-        chart.update(charts.price_chart(df, ticker, width=self._chart_width(), height=22))
+        self.query_one("#price_chart", PriceChart).show(df, ticker)
         self._render_quote(ticker, df)
         self.render_oscillator()
         self.load_backtest()
@@ -236,10 +221,8 @@ class QuantTerminal(App):
             return
         name = self._strategy()
         result = await asyncio.to_thread(backtest.run, df, backtest.STRATEGIES[name])
-        self._equity = result.equity
-        self.query_one("#equity_chart", Static).update(
-            charts.line_chart(result.equity, f"Equity — '{name}' (base 1.0)",
-                              width=self._chart_width(), height=15)
+        self.query_one("#equity_chart", EquityChart).show(
+            result.equity, f"Equity — '{name}' (base 1.0)"
         )
         self.query_one("#metrics", Static).update(_metrics_markup(result.metrics))
 
