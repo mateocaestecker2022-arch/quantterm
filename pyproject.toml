@@ -1,0 +1,22 @@
+[project]
+name = "quantterm"
+version = "0.1.0"
+description = "Terminal quant — data marché, indicateurs, backtesting et screener dans le terminal"
+requires-python = ">=3.10"
+dependencies = [
+    "pandas>=2.2",
+    "numpy>=1.26",
+    "yfinance>=0.2",
+    "textual>=0.80",
+    "plotext>=5.2",
+]
+
+[project.scripts]
+quantterm = "quantterm.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["quantterm*"]
