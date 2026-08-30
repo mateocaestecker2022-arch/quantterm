@@ -123,6 +123,45 @@ def rsi_reversion(window: int = 14, low: float = 30, high: float = 70) -> Strate
     return strat
 
 
+def macd_cross() -> Strategy:
+    """Long quand la ligne MACD passe au-dessus de sa ligne de signal."""
+    def strat(df: pd.DataFrame) -> pd.Series:
+        m = ind.macd(df["Close"])
+        return (m["macd"] > m["signal"]).astype(float)
+    return strat
+
+
+def bollinger_breakout(window: int = 20, n_std: float = 2.0) -> Strategy:
+    """Long en cassure de la bande haute, sort sous la bande médiane."""
+    def strat(df: pd.DataFrame) -> pd.Series:
+        b = ind.bollinger(df["Close"], window, n_std)
+        pos = pd.Series(np.nan, index=df.index)
+        pos[df["Close"] > b["upper"]] = 1.0
+        pos[df["Close"] < b["mid"]] = 0.0
+        return pos.ffill().fillna(0.0)
+    return strat
+
+
+def donchian_breakout(window: int = 20) -> Strategy:
+    """Cassure de canal de Donchian : long sur nouveau plus-haut ``window``."""
+    def strat(df: pd.DataFrame) -> pd.Series:
+        d = ind.donchian(df, window)
+        pos = pd.Series(np.nan, index=df.index)
+        pos[df["Close"] >= d["upper"].shift(1)] = 1.0
+        pos[df["Close"] <= d["lower"].shift(1)] = 0.0
+        return pos.ffill().fillna(0.0)
+    return strat
+
+
+def trend_adx(window: int = 14, threshold: float = 25.0) -> Strategy:
+    """Suit la tendance (+DI vs -DI) uniquement quand l'ADX confirme sa force."""
+    def strat(df: pd.DataFrame) -> pd.Series:
+        a = ind.adx(df, window)
+        strong = a["adx"] > threshold
+        return ((a["plus_di"] > a["minus_di"]) & strong).astype(float)
+    return strat
+
+
 def buy_and_hold() -> Strategy:
     """Référence : toujours investi."""
     def strat(df: pd.DataFrame) -> pd.Series:
@@ -133,5 +172,9 @@ def buy_and_hold() -> Strategy:
 STRATEGIES: dict[str, Strategy] = {
     "sma": sma_crossover(),
     "rsi": rsi_reversion(),
+    "macd": macd_cross(),
+    "bollinger": bollinger_breakout(),
+    "donchian": donchian_breakout(),
+    "adx": trend_adx(),
     "hold": buy_and_hold(),
 }

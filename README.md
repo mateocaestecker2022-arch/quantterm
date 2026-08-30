@@ -8,8 +8,8 @@ backtesting de stratégies et screener d'univers.
 
 - **Données marché** — cours OHLCV via [yfinance](https://github.com/ranaroussi/yfinance), avec cache local (parquet).
 - **Graphiques** — chandeliers + moyennes mobiles directement dans le terminal ([plotext](https://github.com/piccolomo/plotext)).
-- **Indicateurs** — SMA, EMA, RSI, MACD, Bollinger, volatilité (module `indicators`).
-- **Backtesting** — moteur vectorisé léger avec métriques (rendement, CAGR, Sharpe, max drawdown, win rate).
+- **Indicateurs** (module `indicators`) — tendance/prix : SMA, EMA, WMA, MACD, Bollinger, Keltner, Donchian ; oscillateurs : RSI, stochastique, Williams %R, CCI, MFI, ROC, momentum, z-score ; volatilité/volume : ATR, True Range, volatilité annualisée, OBV, VWAP ; force de tendance : ADX/DMI.
+- **Backtesting** — moteur vectorisé léger, 7 stratégies d'exemple (SMA, RSI, MACD, Bollinger, Donchian, ADX, buy & hold) et métriques (rendement, CAGR, Sharpe, max drawdown, win rate).
 - **Screener** — scan d'un univers d'actifs avec filtres (RSI, tendance, performance).
 - **Interface TUI** ([Textual](https://textual.textualize.io/)) + accès **CLI** rapide.
 
@@ -30,9 +30,10 @@ pip install -r requirements.txt
 python -m quantterm
 ```
 
-Onglets : **Graphique** (chandeliers + SMA), **Backtest** (equity + métriques),
-**Screener** (tableau triable). Saisis un ticker, choisis la période et la
-stratégie dans les menus. `r` rafraîchit, `q` quitte.
+Onglets : **Graphique** (chandeliers + SMA, avec panneau oscillateur au choix :
+RSI, MACD, stochastique, ATR, CCI, MFI, Williams %R, ADX), **Backtest** (equity +
+métriques), **Screener** (tableau triable). Saisis un ticker, choisis la période,
+la stratégie et l'oscillateur dans les menus. `r` rafraîchit, `q` quitte.
 
 ### En ligne de commande
 

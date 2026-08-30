@@ -61,10 +61,15 @@ class QuantTerminal(App):
                 [(k, k) for k in backtest.STRATEGIES], value="sma", id="strategy",
                 allow_blank=False,
             )
+            yield Select(
+                [(o, o) for o in charts.OSCILLATORS], value="rsi", id="oscillator",
+                allow_blank=False,
+            )
         with TabbedContent(initial="tab-chart"):
             with TabPane("Graphique", id="tab-chart"):
                 with VerticalScroll():
                     yield Static("Entre un ticker puis appuie sur Entrée.", classes="chart", id="price_chart")
+                    yield Static("", classes="chart", id="osc_chart")
             with TabPane("Backtest", id="tab-backtest"):
                 with VerticalScroll():
                     yield Static("", classes="chart", id="equity_chart")
@@ -91,6 +96,10 @@ class QuantTerminal(App):
     def _on_strategy(self) -> None:
         self.load_backtest()
 
+    @on(Select.Changed, "#oscillator")
+    def _on_oscillator(self) -> None:
+        self.render_oscillator()
+
     def action_refresh(self) -> None:
         self.load_ticker()
         self.load_screener()
@@ -106,6 +115,17 @@ class QuantTerminal(App):
     def _strategy(self) -> str:
         return self.query_one("#strategy", Select).value
 
+    def _oscillator(self) -> str:
+        return self.query_one("#oscillator", Select).value
+
+    def render_oscillator(self) -> None:
+        """Redessine le panneau oscillateur à partir des données déjà chargées."""
+        df = getattr(self, "_df", None)
+        panel = self.query_one("#osc_chart", Static)
+        if df is None or df.empty:
+            return
+        panel.update(charts.oscillator_chart(df, self._oscillator()))
+
     # ---- graphique de prix + backtest ---------------------------------- #
 
     @work(exclusive=True, group="ticker")
@@ -120,6 +140,7 @@ class QuantTerminal(App):
             return
         self._df = df
         chart.update(charts.price_chart(df, ticker))
+        self.render_oscillator()
         self.load_backtest()
 
     @work(exclusive=True, group="backtest")
