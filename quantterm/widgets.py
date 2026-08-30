@@ -38,20 +38,12 @@ class _BasePlot(PlotextPlot):
 
 
 class PriceChart(_BasePlot):
-    """Chandeliers + moyennes mobiles en overlay."""
+    """Courbe de prix (clôture) + moyennes mobiles en overlay."""
 
     def show(self, df: pd.DataFrame, ticker: str, overlays: tuple[int, ...] = (20, 50)) -> None:
         plt = self._fresh()
         dates = _dates(df.index)
-        plt.candlestick(
-            dates,
-            {
-                "Open": df["Open"].tolist(),
-                "Close": df["Close"].tolist(),
-                "High": df["High"].tolist(),
-                "Low": df["Low"].tolist(),
-            },
-        )
+        plt.plot(dates, df["Close"].tolist(), label="Clôture")
         for w in overlays:
             if len(df) > w:
                 plt.plot(dates, ind.sma(df["Close"], w).tolist(), label=f"SMA{w}")
