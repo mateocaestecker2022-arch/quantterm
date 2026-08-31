@@ -47,6 +47,33 @@ PRESETS: dict[str, PropFirmRules] = {
 
 
 @dataclass
+class ContractSpec:
+    """Spécification d'un contrat future.
+
+    ``multiplier`` = unités par contrat (oz pour l'or, $/point pour les indices) ;
+    le **notionnel** d'un contrat = ``multiplier × prix``. ``margin`` est la marge
+    initiale indicative (informative, pas une contrainte de risque)."""
+    symbol: str
+    name: str
+    multiplier: float
+    unit: str                     # "oz" ou "pt"
+    margin: float = 0.0
+
+
+# Spécifications CME courantes (à ajuster si ton broker diffère).
+CONTRACTS: dict[str, ContractSpec] = {
+    "MGC": ContractSpec("MGC", "Micro Gold", 10, "oz", margin=1400),
+    "GC":  ContractSpec("GC", "Gold", 100, "oz", margin=14000),
+    "MNQ": ContractSpec("MNQ", "Micro Nasdaq", 2, "pt", margin=2000),
+    "NQ":  ContractSpec("NQ", "E-mini Nasdaq", 20, "pt", margin=20000),
+    "MES": ContractSpec("MES", "Micro S&P", 5, "pt", margin=1300),
+    "ES":  ContractSpec("ES", "E-mini S&P", 50, "pt", margin=13000),
+    "MCL": ContractSpec("MCL", "Micro Crude", 100, "bbl", margin=1000),
+    "CL":  ContractSpec("CL", "Crude Oil", 1000, "bbl", margin=6000),
+}
+
+
+@dataclass
 class PropFirmResult:
     rules: PropFirmRules
     passed: bool
@@ -174,4 +201,108 @@ def evaluate(
     return PropFirmResult(
         rules, False, reason, target_hit, None, None,
         trading_days, len(equity) - 1, worst_daily, worst_dd, final,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Dimensionnement : combien de contrats sur un capital donné ?
+# --------------------------------------------------------------------------- #
+
+@dataclass
+class SizingResult:
+    contract: ContractSpec
+    capital: float
+    price: float
+    n_contracts: int              # nombre de contrats retenu (respecte les règles)
+    leverage: float               # notionnel total / capital
+    notional: float               # notionnel total (n_contracts)
+    binding: str                  # règle qui plafonne la taille
+    n_daily_max: int              # max autorisé par la perte journalière
+    n_total_max: int              # max autorisé par la perte totale
+    worst_daily_acct: float       # pire perte journalière ramenée au compte (<= 0)
+    worst_dd_acct: float          # pire drawdown ramené au compte (<= 0)
+    verdict: PropFirmResult | None   # verdict du challenge à n_contracts (None si 0)
+
+    def summary(self) -> str:
+        c = self.contract
+        lines = [
+            f"Capital         : {self.capital:,.0f}",
+            f"Contrat         : {c.symbol} ({c.name}, {c.multiplier:g} {c.unit}/contrat)"
+            f" · notionnel/contrat {c.multiplier * self.price:,.0f}",
+            f"Plafond risque  : {self.n_daily_max} (perte j.) / {self.n_total_max} "
+            f"(perte tot.)  ->  retenu {self.n_contracts}  [{self.binding}]",
+        ]
+        if self.n_contracts == 0:
+            lines.append("Verdict         : IMPOSSIBLE — 1 contrat dépasse déjà une règle de risque.")
+            return "\n".join(lines)
+        lines += [
+            f"Position        : {self.n_contracts} × {c.symbol}"
+            f"  ->  notionnel {self.notional:,.0f}  (levier {self.leverage:.1f}x)"
+            f"  · marge ~{c.margin * self.n_contracts:,.0f}",
+            f"Pire jour       : {self.worst_daily_acct:+.2%} du compte "
+            f"(limite {self.verdict.rules.max_daily_loss:.0%})",
+            f"Pire drawdown   : {self.worst_dd_acct:+.2%} du compte "
+            f"(limite {self.verdict.rules.max_total_loss:.0%})",
+            "",
+            self.verdict.summary(),
+        ]
+        return "\n".join(lines)
+
+
+def size_for_challenge(
+    equity: pd.Series,
+    price: float,
+    capital: float,
+    contract: ContractSpec,
+    rules: PropFirmRules,
+) -> SizingResult:
+    """Trouve le **nombre max de contrats** tenant les règles de risque, puis évalue.
+
+    ``equity`` : courbe d'equity du backtest **sur le notionnel** (base 1.0), à la
+    granularité des barres (intraday) — sert à mesurer la perte journalière intraday
+    et le drawdown. ``price`` : prix courant de l'actif (pour le notionnel d'un contrat).
+
+    Un contrat représente un notionnel ``multiplier × price`` ; avec ``n`` contrats le
+    levier vaut ``n × notionnel / capital`` et toute perte sur le notionnel est
+    amplifiée d'autant sur le compte. On prend le plus petit ``n`` autorisé par les
+    deux règles (perte journalière intraday et perte totale), puis on rejoue le
+    challenge sur l'equity du **compte** ainsi levier.
+    """
+    equity = equity.dropna()
+    if equity.empty:
+        raise ValueError("Courbe d'equity vide.")
+    unit_notional = contract.multiplier * price
+    if unit_notional <= 0:
+        raise ValueError("Notionnel de contrat invalide (prix ou multiplicateur nul).")
+
+    # Pires pertes mesurées sur le notionnel (base 1.0).
+    by_day = equity.groupby(equity.index.normalize())
+    worst_daily_notional = float((by_day.min() / by_day.first() - 1.0).min())
+    worst_dd_notional = float((equity / equity.cummax() - 1.0).min())
+
+    def max_contracts(worst_notional: float, limit: float) -> int:
+        # n tel que |worst_notional| * (n * unit_notional / capital) <= limit
+        loss = abs(worst_notional)
+        if loss <= 1e-12:
+            return 10_000          # perte négligeable : borné arbitrairement haut
+        return int(limit * capital / (loss * unit_notional))
+
+    n_daily = max_contracts(worst_daily_notional, rules.max_daily_loss)
+    n_total = max_contracts(worst_dd_notional, rules.max_total_loss)
+    n = max(0, min(n_daily, n_total))
+    binding = "perte journalière" if n_daily <= n_total else "perte totale"
+
+    leverage = n * unit_notional / capital
+    verdict = None
+    worst_daily_acct = worst_daily_notional * leverage
+    worst_dd_acct = worst_dd_notional * leverage
+    if n > 0:
+        daily_notional = equity.resample("1D").last().dropna()
+        daily_notional = daily_notional / daily_notional.iloc[0]
+        acct_equity = 1.0 + leverage * (daily_notional - 1.0)
+        verdict = evaluate(acct_equity, rules)
+
+    return SizingResult(
+        contract, capital, price, n, leverage, n * unit_notional, binding,
+        n_daily, n_total, worst_daily_acct, worst_dd_acct, verdict,
     )

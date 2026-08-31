@@ -1,6 +1,6 @@
 # 🗿 Point de sauvegarde — QuantTerm
 
-> État du projet au **30/08/2026**. Ce fichier résume où on en est, comment
+> État du projet au **31/08/2026**. Ce fichier résume où on en est, comment
 > relancer, et ce qui reste à faire — pour reprendre le travail sans rien perdre.
 
 ---
@@ -13,15 +13,18 @@ dans `.venv`.
 
 | Brique | État | Notes |
 |---|---|---|
-| Données marché (yfinance + cache parquet) | ✅ | testé, réseau OK |
-| Indicateurs techniques (21 au total) | ✅ | validés sur données réelles |
-| Moteur de backtest vectorisé | ✅ | 7 stratégies d'exemple |
+| Données marché (yfinance + cache parquet) | ✅ | testé, réseau OK ; intraday 5m/1m OK |
+| Indicateurs techniques (22 au total) | ✅ | validés sur données réelles ; +Ichimoku |
+| Moteur de backtest vectorisé | ✅ | 8 stratégies d'exemple |
+| **Backtest intra-barre (scalp)** | ✅ | `run_intrabar` : stop/target ATR, entrée sur transition |
 | Screener d'univers + filtres | ✅ | 13 actifs par défaut |
 | **Challenge prop firm** | ✅ | verdict RÉUSSI/ÉCHOUÉ, 4 presets |
+| **Dimensionnement contrats** | ✅ | `size_for_challenge` : nb contrats max sous les règles de risque |
+| **Signal live (démo/VPS)** | ✅ | `live.py` + CLI `signal --watch` : LONG/SHORT/FLAT + stop/target |
 | Graphiques terminal (textual-plotext) | ✅ | widgets auto-dimensionnés |
 | TUI Textual (dense, mono-écran) | ✅ | montage + interactions testés |
-| CLI (`quote`/`backtest`/`screen`/`prop`) | ✅ | testé |
-| Tests unitaires (pytest) | ✅ | 35 tests, hors-ligne, `tests/` |
+| CLI (`quote`/`backtest`/`screen`/`prop`/`scalp`) | ✅ | testé |
+| Tests unitaires (pytest) | ✅ | 43 tests, hors-ligne, `tests/` |
 
 ---
 
@@ -39,6 +42,10 @@ cd "C:/Users/mateo/Documents/CODE PROJET/Terminal"
 .venv/Scripts/python.exe -m quantterm screen --period 1y
 .venv/Scripts/python.exe -m quantterm prop AAPL --strategy macd --preset 1step
 .venv/Scripts/python.exe -m quantterm prop NVDA --scan   # combos qui valident
+
+# Scalp intra-barre (edge Ichimoku sur l'or, cf. section Recherche scalp)
+.venv/Scripts/python.exe -m quantterm scalp GC=F --strategy ichimoku --stop 2 --target 3
+.venv/Scripts/python.exe -m quantterm scalp GC=F --strategy ichimoku --prop 2step-p1
 
 # Tests (hors-ligne, ~0.5 s)
 .venv/Scripts/python.exe -m pytest
@@ -62,8 +69,9 @@ quantterm/
 ├── widgets.py      # widgets graphiques textual-plotext (Price/Oscillator/Equity)
 ├── data.py         # récupération yfinance + cache disque (.cache/*.parquet, TTL 1h)
 ├── indicators.py   # 21 indicateurs techniques
-├── backtest.py     # moteur vectorisé + 7 stratégies + métriques
-├── propfirm.py     # évaluation challenge prop firm (règles + presets)
+├── backtest.py     # moteur vectorisé (run) + événementiel intra-barre (run_intrabar) + 8 stratégies
+├── propfirm.py     # évaluation challenge prop firm (règles + presets) + dimensionnement contrats
+├── live.py         # signal temps réel LONG/SHORT/FLAT (from_df pur + compute réseau)
 ├── screener.py     # scan d'univers + filtres
 └── charts.py       # ancien rendu plotext texte (conservé, plus utilisé par la TUI)
 ```
@@ -109,6 +117,36 @@ quantterm/
 
 ---
 
+## 🔬 Recherche scalp (31/08/2026) — edge Ichimoku sur l'or
+
+Recherche menée sur **futures/forex en 5 min** (yfinance : 60j de 5m, 7j de 1m).
+Méthode anti-illusion : split in-sample/out-of-sample **+ walk-forward** (params figés,
+6 tranches chronologiques) **+ sensibilité au coût** **+ exécution intra-barre réaliste**
+(stop/target ATR sur High/Low). Coûts round-trip modélisés : ES/NQ ~1 bp, GC ~1.2 bp.
+
+**Enseignement principal — le régime dicte la famille :**
+- **Indices (ES, NQ) → mean-reversion** (RSI). Le momentum/Ichimoku s'y fait hacher.
+- **Or (GC) → momentum**, et **Ichimoku "full" (20/60/120) est le meilleur** moteur trouvé.
+
+**Edge retenu :** `ichimoku` sur **GC=F 5m, stop 2 ATR / target 3 ATR**.
+- Intra-barre + walk-forward : Sharpe/trade positif, **~+4.5 bps net/trade**, ~1 trade/jour,
+  **maxDD ~1 %**, 67-83 % des tranches positives (selon la largeur de stop).
+- Robuste au coût (tient jusqu'à ~3× l'hypothèse). Les stops **serrés (<1.5 ATR) tuent
+  tout** : un edge fin a besoin de respirer.
+
+**Prop firm :** l'edge fait ~+4.5 % en 60j sur le **notionnel** → l'effet de levier des
+futures le transforme sur un compte. Sur **10k$ + or (MGC) + règles 8%/5%/10%** :
+`size_for_challenge` retient **1 contrat MGC** (levier 4.5x, plafonné par la perte
+journalière/totale) → **RÉUSSI** sur le sample (pire jour −3 %, pire DD −7.5 %, sous les
+limites 5 %/10 %). 2 MGC ne « passe » que par chance d'ordre (DD complet −15 % > 10 %).
+⚠️ Le pire jour observé sous-estime le tail : N stops groupés = N×~1.4 %/compte à 1 MGC.
+
+**Réserves d'honnêteté :** 60 jours = **un seul régime** ; ~100 trades (correct, pas
+énorme) ; **qualité data yfinance intraday** approximative (FX bid-only, pas de vrai volume
+→ EURUSD sans edge exploitable ici). Scripts de recherche dans le scratchpad de session.
+
+---
+
 ## ⚠️ Pièges connus / décisions
 
 - **Graphiques TUI = widgets `textual-plotext`**, jamais du texte plotext fixe dans
@@ -119,6 +157,14 @@ quantterm/
   La TUI n'est pas concernée. **Windows Terminal** > vieux `cmd.exe` pour le rendu.
 - SMA200 indisponible sur périodes courtes → le screener retombe sur la SMA50.
 - Prop firm : perte journalière approximée **de clôture à clôture** (pas d'intraday).
+- **`fee` : conventions différentes !** `run()` = coût **par côté** (par changement de
+  position) ; `run_intrabar()` = coût **aller-retour** par trade. Défauts : 5 bps (run)
+  vs 1 bp (run_intrabar).
+- `run_intrabar` n'entre que sur **transition** de signal (nouveau croisement), pas sur
+  l'état persistant — sinon ré-entrée en boucle après chaque stop (churning). Bug
+  rencontré et corrigé pendant la recherche : Ichimoku passait de 28 à 3000+ trades.
+- Pour le verdict prop firm sur du scalp : **rééchantillonner l'equity intra-barre en
+  journalier** (`.resample("1D").last()`) avant `propfirm.evaluate` (qui raisonne par jour).
 
 ---
 
@@ -130,7 +176,14 @@ quantterm/
 - [ ] **Comparaison de stratégies** côte à côte (equity superposées vs buy & hold)
 - [ ] **Watchlists** personnalisables (univers de screener sauvegardé)
 - [ ] **Optimisation de paramètres** (grid search sur les stratégies)
-- [x] **Tests unitaires** pytest (35 tests hors-ligne dans `tests/`)
+- [x] **Dimensionnement prop firm** (`size_for_challenge` : capital + règles → nb contrats + verdict)
+- [x] **Signal live** (`live.py` + CLI `signal --watch`) pour test démo sur VPS
+- [ ] **Exécution auto** (bot) : connexion broker/API pour passer les ordres (aujourd'hui : signal manuel seulement)
+- [ ] **Valider hors yfinance** (données intraday propres, ex. Binance/broker) — l'edge sur + de régimes
+- [ ] Intégrer le scalp intra-barre dans la **TUI** (aujourd'hui CLI + module uniquement)
+- [x] **Recherche edge scalp** : Ichimoku sur GC=F 5m (walk-forward + coûts + intra-barre)
+- [x] **Backtest événementiel intra-barre** (`run_intrabar`, stop/target ATR) + indicateur Ichimoku
+- [x] **Tests unitaires** pytest (40 tests hors-ligne dans `tests/`)
 - [x] **Refonte interface** style Bloomberg + graphiques auto-dimensionnés
 - [x] **Challenge prop firm** (module + CLI + TUI)
 

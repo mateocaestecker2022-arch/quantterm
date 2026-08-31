@@ -73,3 +73,60 @@ def test_flat_position_yields_no_return():
     result = backtest.run(df, lambda d: pd.Series(0.0, index=d.index), fee=0.0)
     assert result.equity.iloc[-1] == pytest.approx(1.0)
     assert result.metrics["n_trades"] == 0
+
+
+# --------------------------------------------------------------------------- #
+# Backtest événementiel intra-barre
+# --------------------------------------------------------------------------- #
+
+def test_intrabar_runs_and_is_consistent(ohlcv):
+    result = backtest.run_intrabar(ohlcv, backtest.STRATEGIES["ichimoku"])
+    assert len(result.equity) == len(ohlcv)
+    assert np.isfinite(result.equity.iloc[-1])
+    # Les positions ne prennent que les valeurs -1/0/1.
+    assert set(result.positions.unique()).issubset({-1.0, 0.0, 1.0})
+    # Nombre de trades cohérent entre la série et la métrique.
+    assert result.metrics["n_trades"] == len(result.trades)
+    for key in ("total_return", "sharpe", "max_drawdown", "win_rate", "per_trade"):
+        assert np.isfinite(result.metrics[key])
+
+
+def test_intrabar_stop_caps_the_loss():
+    # Entrée long forcée puis krach : le stop doit plafonner la perte bien avant
+    # la clôture effondrée (98 vs 90).
+    df = pd.DataFrame(
+        {
+            "Open":  [100, 100, 100, 95, 95, 95.0],
+            "High":  [100, 100, 101, 95, 95, 95.0],
+            "Low":   [100, 100, 99, 90, 90, 90.0],
+            "Close": [100, 100, 100, 90, 90, 90.0],
+            "Volume": [1, 1, 1, 1, 1, 1],
+        }
+    )
+    # Signal : transition vers long à la barre 1 -> entrée à l'open de la barre 2.
+    desired = pd.Series([0, 1, 1, 1, 1, 1.0], index=df.index)
+    res = backtest.run_intrabar(
+        df, lambda d: desired, fee=0.0, atr_window=1, k_stop=1.0, k_target=10.0,
+    )
+    # ATR(2)=2 -> stop=98. Un seul trade, sorti au stop : -2 %, pas -10 %.
+    assert res.metrics["n_trades"] == 1
+    assert res.trades.iloc[0] == pytest.approx(-0.02)
+    assert res.equity.min() >= 0.98 - 1e-9  # la perte est bien plafonnée
+
+
+def test_intrabar_no_entry_without_fresh_signal():
+    # Un signal long CONSTANT (jamais de transition) ne doit jamais entrer.
+    df = pd.DataFrame(
+        {
+            "Open":  [100, 101, 102, 103.0],
+            "High":  [101, 102, 103, 104.0],
+            "Low":   [99, 100, 101, 102.0],
+            "Close": [100, 101, 102, 103.0],
+            "Volume": [1, 1, 1, 1],
+        }
+    )
+    res = backtest.run_intrabar(
+        df, lambda d: pd.Series(1.0, index=d.index), fee=0.0, atr_window=1,
+    )
+    assert res.metrics["n_trades"] == 0
+    assert res.equity.iloc[-1] == pytest.approx(1.0)

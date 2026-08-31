@@ -191,3 +191,34 @@ def donchian(df: pd.DataFrame, window: int = 20) -> pd.DataFrame:
     upper = df["High"].rolling(window).max()
     lower = df["Low"].rolling(window).min()
     return pd.DataFrame({"upper": upper, "lower": lower, "mid": (upper + lower) / 2})
+
+
+def ichimoku(
+    df: pd.DataFrame,
+    tenkan: int = 9,
+    kijun: int = 26,
+    senkou_b: int = 52,
+) -> pd.DataFrame:
+    """Ichimoku Kinko Hyo (« équilibre en un coup d'œil »).
+
+    Renvoie les cinq lignes du système :
+
+    - ``tenkan`` (conversion) : milieu du plus haut/plus bas sur ``tenkan`` périodes ;
+    - ``kijun`` (base) : idem sur ``kijun`` périodes ;
+    - ``span_a`` (Senkou A) : (tenkan+kijun)/2, **projeté** de ``kijun`` périodes ;
+    - ``span_b`` (Senkou B) : milieu sur ``senkou_b`` périodes, projeté de ``kijun`` ;
+    - ``chikou`` (retard) : clôture **décalée en arrière** de ``kijun`` périodes.
+
+    Les deux ``span`` délimitent le *nuage* (kumo) : prix au-dessus = biais haussier,
+    en-dessous = baissier. Le décalage avant des spans reflète la projection standard
+    d'Ichimoku (aucun look-ahead : ``span_*[t]`` n'utilise que des données ≤ t).
+    """
+    high, low = df["High"], df["Low"]
+    conv = (high.rolling(tenkan).max() + low.rolling(tenkan).min()) / 2
+    base = (high.rolling(kijun).max() + low.rolling(kijun).min()) / 2
+    span_a = ((conv + base) / 2).shift(kijun)
+    span_b = ((high.rolling(senkou_b).max() + low.rolling(senkou_b).min()) / 2).shift(kijun)
+    chikou = df["Close"].shift(-kijun)
+    return pd.DataFrame(
+        {"tenkan": conv, "kijun": base, "span_a": span_a, "span_b": span_b, "chikou": chikou}
+    )

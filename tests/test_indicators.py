@@ -40,6 +40,27 @@ def test_macd_columns_and_hist_consistency(close):
     )
 
 
+def test_ichimoku_columns_and_no_lookahead(ohlcv):
+    k = ind.ichimoku(ohlcv, 9, 26, 52)
+    assert list(k.columns) == ["tenkan", "kijun", "span_a", "span_b", "chikou"]
+    # Les spans sont projetés en avant : span_a[t] = (tenkan+kijun)/2 calculé en t-26,
+    # donc reconstructible sans aucune donnée future.
+    conv = (ohlcv["High"].rolling(9).max() + ohlcv["Low"].rolling(9).min()) / 2
+    base = (ohlcv["High"].rolling(26).max() + ohlcv["Low"].rolling(26).min()) / 2
+    expected_span_a = ((conv + base) / 2).shift(26)
+    pd.testing.assert_series_equal(k["span_a"], expected_span_a, check_names=False)
+
+
+def test_ichimoku_tenkan_within_price_range(ohlcv):
+    # La Tenkan est un milieu de canal : bornée par le plus haut/plus bas récents.
+    k = ind.ichimoku(ohlcv, 9, 26, 52)
+    hi9 = ohlcv["High"].rolling(9).max()
+    lo9 = ohlcv["Low"].rolling(9).min()
+    valid = k["tenkan"].dropna()
+    assert (valid <= hi9.loc[valid.index] + 1e-9).all()
+    assert (valid >= lo9.loc[valid.index] - 1e-9).all()
+
+
 def test_bollinger_ordering(close):
     b = ind.bollinger(close).dropna()
     assert (b["upper"] >= b["mid"]).all()

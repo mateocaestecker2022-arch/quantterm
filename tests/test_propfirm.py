@@ -79,3 +79,49 @@ def test_presets_are_valid_rules():
         assert 0 < rules.profit_target < 1
         assert 0 < rules.max_daily_loss < 1
         assert 0 < rules.max_total_loss < 1
+
+
+# --------------------------------------------------------------------------- #
+# Dimensionnement (size_for_challenge)
+# --------------------------------------------------------------------------- #
+
+def _intraday_equity(worst_dd: float, n_days: int = 8) -> pd.Series:
+    """Equity intraday synthétique : monte régulièrement, avec un creux ``worst_dd``
+    (fraction <= 0) au milieu — pour piloter le pire drawdown/jour du notionnel."""
+    idx = pd.date_range("2024-01-01 09:00", periods=n_days * 4, freq="h")
+    vals = np.linspace(1.0, 1.20, len(idx))          # tendance haussière
+    vals[len(idx) // 2] *= (1.0 + worst_dd)          # un creux ponctuel
+    return pd.Series(vals, index=idx)
+
+
+def test_sizing_respects_both_limits():
+    rules = propfirm.PropFirmRules("t", 0.08, 0.05, 0.10)
+    eq = _intraday_equity(worst_dd=-0.02)            # pire creux -2 % du notionnel
+    spec = propfirm.CONTRACTS["MGC"]                 # 10 oz
+    s = propfirm.size_for_challenge(eq, price=1000.0, capital=100_000, contract=spec, rules=rules)
+    # La perte ramenée au compte doit rester sous les deux limites.
+    assert abs(s.worst_daily_acct) <= rules.max_daily_loss + 1e-9
+    assert abs(s.worst_dd_acct) <= rules.max_total_loss + 1e-9
+    # Un contrat de plus dépasserait forcément une des deux règles.
+    over = (s.n_contracts + 1) * spec.multiplier * 1000.0 / 100_000
+    assert abs(-0.02 * over) > rules.max_total_loss - 1e-9 or \
+        abs(s.worst_daily_acct / s.leverage * over) > rules.max_daily_loss - 1e-9
+
+
+def test_sizing_scales_with_capital():
+    rules = propfirm.PropFirmRules("t", 0.08, 0.05, 0.10)
+    eq = _intraday_equity(worst_dd=-0.03)
+    spec = propfirm.CONTRACTS["MGC"]
+    small = propfirm.size_for_challenge(eq, 1000.0, 20_000, spec, rules)
+    big = propfirm.size_for_challenge(eq, 1000.0, 200_000, spec, rules)
+    assert big.n_contracts > small.n_contracts
+
+
+def test_sizing_impossible_returns_zero():
+    rules = propfirm.PropFirmRules("t", 0.08, 0.05, 0.10)
+    eq = _intraday_equity(worst_dd=-0.10)            # gros risque par unité de notionnel
+    spec = propfirm.CONTRACTS["GC"]                  # gros contrat (100 oz)
+    # Capital minuscule : même 1 contrat dépasse les règles.
+    s = propfirm.size_for_challenge(eq, 5000.0, 1000, spec, rules)
+    assert s.n_contracts == 0
+    assert s.verdict is None

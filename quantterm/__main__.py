@@ -28,6 +28,30 @@ def main() -> None:
     p_q = sub.add_parser("quote", help="Cotation rapide d'un ticker")
     p_q.add_argument("ticker")
 
+    p_scalp = sub.add_parser("scalp", help="Backtest scalp intra-barre (stop/target ATR)")
+    p_scalp.add_argument("ticker")
+    p_scalp.add_argument("--strategy", default="ichimoku")
+    p_scalp.add_argument("--interval", default="5m", help="granularité intraday (5m, 15m, 1h...)")
+    p_scalp.add_argument("--period", default="60d")
+    p_scalp.add_argument("--stop", type=float, default=2.0, help="stop en multiples d'ATR")
+    p_scalp.add_argument("--target", type=float, default=3.0, help="target en multiples d'ATR")
+    p_scalp.add_argument("--fee", type=float, default=1.0, help="coût aller-retour en bps")
+    p_scalp.add_argument("--prop", default=None,
+                         help="évalue aussi un preset prop firm (2step-p1 | 1step | ...)")
+    p_scalp.add_argument("--capital", type=float, default=None,
+                         help="capital du compte : dimensionne le nb de contrats (avec --prop)")
+    p_scalp.add_argument("--contract", default=None,
+                         help="contrat future (MGC | GC | MNQ | NQ | MES | ES | MCL | CL)")
+
+    p_sig = sub.add_parser("signal", help="Signal live long/short/flat (démo/VPS)")
+    p_sig.add_argument("ticker")
+    p_sig.add_argument("--strategy", default="ichimoku")
+    p_sig.add_argument("--interval", default="5m")
+    p_sig.add_argument("--stop", type=float, default=2.0, help="stop en multiples d'ATR")
+    p_sig.add_argument("--target", type=float, default=3.0, help="target en multiples d'ATR")
+    p_sig.add_argument("--watch", type=int, default=0,
+                       help="rafraîchit toutes les N secondes en boucle (0 = une seule fois)")
+
     p_pf = sub.add_parser("prop", help="Évaluation challenge prop firm")
     p_pf.add_argument("ticker")
     p_pf.add_argument("--strategy", default="sma")
@@ -62,6 +86,62 @@ def main() -> None:
 
         q = data.latest_quote(args.ticker)
         print(f"{q['ticker']} : {q['price']:.2f} ({q['change']:+.2f} / {q['pct']:+.2f}%)")
+    elif args.cmd == "scalp":
+        from . import backtest, data, propfirm
+
+        df = data.get_history(args.ticker, period=args.period, interval=args.interval)
+        strat = backtest.STRATEGIES.get(args.strategy)
+        if strat is None:
+            sys.exit(f"Stratégie inconnue : {args.strategy}")
+        res = backtest.run_intrabar(
+            df, strat, fee=args.fee * 1e-4, k_stop=args.stop, k_target=args.target,
+        )
+        print(f"\nScalp {args.ticker.upper()} — '{args.strategy}' {args.interval} "
+              f"({args.period}, stop {args.stop}ATR / target {args.target}ATR, "
+              f"{args.fee}bps RT)\n")
+        print(res.summary())
+        if args.prop:
+            rules = propfirm.PRESETS.get(args.prop)
+            if rules is None:
+                sys.exit(f"Preset inconnu : {args.prop} (dispo : {', '.join(propfirm.PRESETS)})")
+            if args.capital and args.contract:
+                spec = propfirm.CONTRACTS.get(args.contract.upper())
+                if spec is None:
+                    sys.exit(f"Contrat inconnu : {args.contract} (dispo : {', '.join(propfirm.CONTRACTS)})")
+                price = float(df["Close"].iloc[-1])
+                sizing = propfirm.size_for_challenge(res.equity, price, args.capital, spec, rules)
+                print(f"\n--- Dimensionnement prop firm ({args.prop}, capital {args.capital:,.0f}) ---\n")
+                print(sizing.summary())
+            else:
+                daily = res.equity.resample("1D").last().dropna()
+                daily = daily / daily.iloc[0]
+                r = propfirm.evaluate(daily, rules)
+                print(f"\n--- Challenge prop firm ({args.prop}) ---\n")
+                print(r.summary())
+    elif args.cmd == "signal":
+        import time
+
+        from . import live
+
+        def show_once() -> None:
+            try:
+                sig = live.compute(args.ticker, args.strategy, args.interval,
+                                   k_stop=args.stop, k_target=args.target)
+                print(sig.summary())
+            except Exception as exc:  # réseau capricieux : on n'interrompt pas la boucle
+                print(f"[erreur] {exc}")
+
+        if args.watch > 0:
+            print(f"Signal live {args.ticker.upper()} / '{args.strategy}' {args.interval} "
+                  f"— rafraîchi toutes les {args.watch}s (Ctrl+C pour arrêter)\n")
+            try:
+                while True:
+                    show_once()
+                    time.sleep(args.watch)
+            except KeyboardInterrupt:
+                print("\nArrêt du signal live.")
+        else:
+            show_once()
     elif args.cmd == "prop":
         from . import backtest, data, propfirm
 
