@@ -10,7 +10,19 @@ import argparse
 import sys
 
 
+def _force_utf8() -> None:
+    """Console Windows en cp1252 : force la sortie en UTF-8 (accents, flèches…)."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfig = getattr(stream, "reconfigure", None)
+        if reconfig is not None:
+            try:
+                reconfig(encoding="utf-8")
+            except (ValueError, OSError):
+                pass
+
+
 def main() -> None:
+    _force_utf8()
     parser = argparse.ArgumentParser(
         prog="quantterm",
         description="Terminal quant — data marché, backtesting et screener.",
@@ -51,6 +63,9 @@ def main() -> None:
     p_sig.add_argument("--target", type=float, default=3.0, help="target en multiples d'ATR")
     p_sig.add_argument("--watch", type=int, default=0,
                        help="rafraîchit toutes les N secondes en boucle (0 = une seule fois)")
+    p_sig.add_argument("--telegram", action="store_true",
+                       help="envoie les signaux frais sur Telegram "
+                            "(config via QUANTTERM_TG_TOKEN / QUANTTERM_TG_CHAT)")
 
     p_pf = sub.add_parser("prop", help="Évaluation challenge prop firm")
     p_pf.add_argument("ticker")
@@ -123,11 +138,28 @@ def main() -> None:
 
         from . import live
 
+        notifier = None
+        if args.telegram:
+            from . import notify
+
+            notifier = notify.TelegramNotifier.from_env()
+            if notifier is None:
+                print("[telegram] désactivé : définis QUANTTERM_TG_TOKEN "
+                      "et QUANTTERM_TG_CHAT.\n")
+
+        last_notified: dict = {"key": None}
+
         def show_once() -> None:
             try:
                 sig = live.compute(args.ticker, args.strategy, args.interval,
                                    k_stop=args.stop, k_target=args.target)
                 print(sig.summary())
+                # Notifier uniquement les signaux frais, une seule fois par barre.
+                if notifier is not None and sig.fresh:
+                    key = (sig.direction, sig.timestamp)
+                    if key != last_notified["key"]:
+                        if notifier.send(sig.summary()):
+                            last_notified["key"] = key
             except Exception as exc:  # réseau capricieux : on n'interrompt pas la boucle
                 print(f"[erreur] {exc}")
 

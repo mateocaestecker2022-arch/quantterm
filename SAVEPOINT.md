@@ -1,6 +1,6 @@
 # 🗿 Point de sauvegarde — QuantTerm
 
-> État du projet au **31/08/2026**. Ce fichier résume où on en est, comment
+> État du projet au **01/09/2026**. Ce fichier résume où on en est, comment
 > relancer, et ce qui reste à faire — pour reprendre le travail sans rien perdre.
 
 ---
@@ -147,6 +147,42 @@ limites 5 %/10 %). 2 MGC ne « passe » que par chance d'ordre (DD complet −15
 
 ---
 
+## 🧪 Validation robuste (01/09/2026) — verdict : 🟡 hypothèse crédible mais fragile
+
+Batterie de tests **à params FIGÉS** (Ichimoku 20/60/120, stop 2 / target 3 ATR — zéro
+ré-optimisation). Comme rien n'est ajusté, chaque tranche est déjà de l'**OOS** : le risque
+résiduel n'est pas l'overfitting de paramètres, c'est le **régime** et le **coût réel**.
+
+**1. Stabilité temporelle GC=F 5m (6 tranches chrono)** — 5/6 positives, aucune ne casse
+(DD par tranche ~-0.6 à -0.9 %). Gain/trade variable ×4 (0.02→0.08 %) : edge **réel mais mince**.
+
+**1b. Horizon long GC=F 1h ~2 ans** (le 5m plafonne à 60 j chez yfinance) — **+17.8 %**,
+DD -7.2 %, **6/8 tranches positives** → la tendance momentum-or **persiste multi-régimes**,
+donc pas un pur artefact des 60 j. **MAIS** fortement **concentrée** (une tranche jan→mai 2026
+porte l'essentiel) et c'est du **1h, pas du 5m** → preuve de concept du *style*, pas validation
+du 5m.
+
+**2. Stress coûts/slippage** — **point mort ≈ 5 bps round-trip** (edge brut ~5.2 bps/trade,
+en dépense 1, reste ~4). Slippage tick quasi indolore (+5 ticks/côté → +4.35 %→+2.41 %,
+car 1 tick ≈ 0.23 bp à 4400 $). **Le tueur = le coût total, pas le slippage.**
+
+**3. Généralisation ES=F / NQ=F (mêmes params)** — **ES -4.9 % (6/6 tranches nég.),
+NQ -8.6 % (5/6 nég.)**. Sans appel → l'edge est **propre à l'or** (les indices sont
+mean-reverting, le momentum s'y fait hacher). **Ne PAS généraliser.**
+
+**Verdict :** 🟡 **hypothèse crédible mais fragile — GC uniquement.**
+Pas un edge validé, pas de généralisation, **pas de prop / pas de réel**.
+> **Question falsifiable qui reste :** les **coûts d'exécution réels GC/MGC** laissent-ils
+> survivre les ~4 bps/trade ? (le backtest yfinance ne modélise ni spread réel ni slippage réel.)
+
+**Décision de discipline :** on **ne fait PAS** de tuning post-résultat (pas de balayage
+stop/target, pas de 15m) — ça fabriquerait l'illusion qu'on cherche à éviter. On teste
+l'hypothèse **en démo GC=F uniquement, 1 MGC, params figés**, et on juge sur le coût réel.
+
+Script de validation : `scratchpad/validate.py` (session).
+
+---
+
 ## ⚠️ Pièges connus / décisions
 
 - **Graphiques TUI = widgets `textual-plotext`**, jamais du texte plotext fixe dans
@@ -179,6 +215,7 @@ limites 5 %/10 %). 2 MGC ne « passe » que par chance d'ordre (DD complet −15
 - [x] **Dimensionnement prop firm** (`size_for_challenge` : capital + règles → nb contrats + verdict)
 - [x] **Signal live** (`live.py` + CLI `signal --watch`) pour test démo sur VPS
 - [ ] **Exécution auto** (bot) : connexion broker/API pour passer les ordres (aujourd'hui : signal manuel seulement)
+- [x] **Validation robuste de l'edge** (stabilité temporelle + stress coûts + ES/NQ) → 🟡 GC seul, fragile (cf. section Validation 01/09)
 - [ ] **Valider hors yfinance** (données intraday propres, ex. Binance/broker) — l'edge sur + de régimes
 - [ ] Intégrer le scalp intra-barre dans la **TUI** (aujourd'hui CLI + module uniquement)
 - [x] **Recherche edge scalp** : Ichimoku sur GC=F 5m (walk-forward + coûts + intra-barre)
