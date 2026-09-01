@@ -21,9 +21,10 @@ dans `.venv`.
 | **Challenge prop firm** | ✅ | verdict RÉUSSI/ÉCHOUÉ, 4 presets |
 | **Dimensionnement contrats** | ✅ | `size_for_challenge` : nb contrats max sous les règles de risque |
 | **Signal live (démo/VPS)** | ✅ | `live.py` + CLI `signal --watch` : LONG/SHORT/FLAT + stop/target |
+| **Notifications Telegram** | ✅ | `notify.py` + `signal --telegram` : envoi des signaux frais (dédup), non déployé |
 | Graphiques terminal (textual-plotext) | ✅ | widgets auto-dimensionnés |
 | TUI Textual (dense, mono-écran) | ✅ | montage + interactions testés |
-| CLI (`quote`/`backtest`/`screen`/`prop`/`scalp`) | ✅ | testé |
+| CLI (`quote`/`backtest`/`screen`/`prop`/`scalp`/`signal`) | ✅ | testé ; UTF-8 forcé, plus besoin de `PYTHONIOENCODING` |
 | Tests unitaires (pytest) | ✅ | 43 tests, hors-ligne, `tests/` |
 
 ---
@@ -72,6 +73,7 @@ quantterm/
 ├── backtest.py     # moteur vectorisé (run) + événementiel intra-barre (run_intrabar) + 8 stratégies
 ├── propfirm.py     # évaluation challenge prop firm (règles + presets) + dimensionnement contrats
 ├── live.py         # signal temps réel LONG/SHORT/FLAT (from_df pur + compute réseau)
+├── notify.py       # notifications Telegram (TelegramNotifier, config par variables d'env)
 ├── screener.py     # scan d'univers + filtres
 └── charts.py       # ancien rendu plotext texte (conservé, plus utilisé par la TUI)
 ```
@@ -189,8 +191,12 @@ Script de validation : `scratchpad/validate.py` (session).
   un `Static` : ça débordait et rendait l'écran illisible (bug corrigé, commit e3639fc).
 - **plotext épinglé `<6`** : la 6.0.0 a une API totalement incompatible.
 - **pandas 3.0** : `fillna(method=...)` supprimé → utiliser `.ffill()`/`.bfill()`.
-- Console Windows en cp1252 : accents mal rendus en CLI brute → `PYTHONIOENCODING=utf-8`.
+- Console Windows en cp1252 : réglé dans le code via `_force_utf8()` en tête de `main()`
+  (`sys.stdout/stderr.reconfigure`) → plus besoin de `PYTHONIOENCODING=utf-8` en CLI.
   La TUI n'est pas concernée. **Windows Terminal** > vieux `cmd.exe` pour le rendu.
+- **Telegram** : token/chat_id lus dans `QUANTTERM_TG_TOKEN` / `QUANTTERM_TG_CHAT`
+  (jamais en argument CLI, pour ne pas fuiter). `signal --telegram` n'envoie que sur
+  signal **frais**, dédupliqué par (direction, barre) pour éviter le spam à chaque cycle.
 - SMA200 indisponible sur périodes courtes → le screener retombe sur la SMA50.
 - Prop firm : perte journalière approximée **de clôture à clôture** (pas d'intraday).
 - **`fee` : conventions différentes !** `run()` = coût **par côté** (par changement de
@@ -229,6 +235,9 @@ Script de validation : `scratchpad/validate.py` (session).
 ## 🧾 Historique git
 
 ```
+e514393  Signaux Telegram, fix UTF-8 CLI + validation robuste de l'edge
+a7d18e3  Edge scalp Ichimoku (or) : moteur intra-barre, dimensionnement prop firm, signal live
+9a211e1  Mise a jour du point de sauvegarde (UI Bloomberg, prop firm, 35 tests)
 139b59c  Ajout evaluation challenge prop firm
 f03ad77  Graphique de prix en courbe (cloture + SMA) au lieu de chandeliers
 e3639fc  Fix majeur: graphiques via textual-plotext (fin des debordements)
