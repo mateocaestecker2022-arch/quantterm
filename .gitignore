@@ -16,3 +16,6 @@ preview.svg
 .DS_Store
 .idea/
 .vscode/
+
+# VPS interne — ne jamais pousser (IP/structure)
+ops/VPS_MT5.md
