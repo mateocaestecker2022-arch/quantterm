@@ -19,6 +19,23 @@ from . import indicators as ind
 
 _LABELS = {1: "LONG", -1: "SHORT", 0: "FLAT"}
 
+# --------------------------------------------------------------------------- #
+# Portefeuille multi-actif : chaque instrument avec SA stratégie (le régime dicte
+# la famille — momentum pour l'or, mean-reversion pour les indices). Voir SAVEPOINT.
+# --------------------------------------------------------------------------- #
+INSTRUMENTS: list[dict] = [
+    {
+        "ticker": "GC=F", "strategy": "ichimoku", "interval": "5m",
+        "k_stop": 2.0, "k_target": 3.0,
+        "note": "or · momentum Ichimoku · edge 🟡 retenu (GC seul)",
+    },
+    {
+        "ticker": "NQ=F", "strategy": "rsi_meanrev", "interval": "5m",
+        "k_stop": 2.0, "k_target": 2.0,
+        "note": "nasdaq · mean-reversion RSI 25/75 · DÉMO 🟡 (edge non confirmé multi-régime)",
+    },
+]
+
 
 @dataclass
 class LiveSignal:
@@ -109,6 +126,8 @@ def from_df(
             "nuage↑": float(k[["span_a", "span_b"]].max(axis=1).iloc[-1]),
             "nuage↓": float(k[["span_a", "span_b"]].min(axis=1).iloc[-1]),
         }
+    elif strategy_name == "rsi_meanrev":
+        context = {"RSI": float(ind.rsi(df["Close"], 14).iloc[-1])}
 
     return LiveSignal(ticker, df.index[-1], price, direction, fresh, atr,
                       k_stop, k_target, context)

@@ -67,6 +67,13 @@ def main() -> None:
                        help="envoie les signaux frais sur Telegram "
                             "(config via QUANTTERM_TG_TOKEN / QUANTTERM_TG_CHAT)")
 
+    p_w = sub.add_parser("watch", help="Signal live multi-actif (portefeuille démo : or + nasdaq)")
+    p_w.add_argument("--every", type=int, default=0,
+                     help="rafraîchit toutes les N secondes en boucle (0 = une seule fois)")
+    p_w.add_argument("--telegram", action="store_true",
+                     help="envoie les signaux frais sur Telegram "
+                          "(config via QUANTTERM_TG_TOKEN / QUANTTERM_TG_CHAT)")
+
     p_pf = sub.add_parser("prop", help="Évaluation challenge prop firm")
     p_pf.add_argument("ticker")
     p_pf.add_argument("--strategy", default="sma")
@@ -174,6 +181,51 @@ def main() -> None:
                 print("\nArrêt du signal live.")
         else:
             show_once()
+    elif args.cmd == "watch":
+        import time
+
+        from . import live
+
+        notifier = None
+        if args.telegram:
+            from . import notify
+
+            notifier = notify.TelegramNotifier.from_env()
+            if notifier is None:
+                print("[telegram] désactivé : définis QUANTTERM_TG_TOKEN "
+                      "et QUANTTERM_TG_CHAT.\n")
+
+        last_notified: dict = {}
+
+        def cycle() -> None:
+            for inst in live.INSTRUMENTS:
+                try:
+                    sig = live.compute(inst["ticker"], inst["strategy"], inst["interval"],
+                                       k_stop=inst["k_stop"], k_target=inst["k_target"])
+                    print(f"  • {inst['note']}")
+                    print(sig.summary())
+                    print()
+                    if notifier is not None and sig.fresh:
+                        key = (inst["ticker"], sig.direction, sig.timestamp)
+                        if last_notified.get(inst["ticker"]) != key:
+                            if notifier.send(f"{inst['ticker'].upper()}\n{sig.summary()}"):
+                                last_notified[inst["ticker"]] = key
+                except Exception as exc:  # réseau capricieux : on n'interrompt pas la boucle
+                    print(f"  • {inst['ticker'].upper()} — [erreur] {exc}\n")
+
+        tickers = ", ".join(i["ticker"].upper() for i in live.INSTRUMENTS)
+        if args.every > 0:
+            print(f"Watch multi-actif [{tickers}] — rafraîchi toutes les {args.every}s "
+                  f"(Ctrl+C pour arrêter)\n")
+            try:
+                while True:
+                    cycle()
+                    time.sleep(args.every)
+            except KeyboardInterrupt:
+                print("\nArrêt du watch multi-actif.")
+        else:
+            print(f"Watch multi-actif [{tickers}]\n")
+            cycle()
     elif args.cmd == "prop":
         from . import backtest, data, propfirm
 

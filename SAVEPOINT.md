@@ -1,6 +1,6 @@
 # 🗿 Point de sauvegarde — QuantTerm
 
-> État du projet au **01/09/2026**. Ce fichier résume où on en est, comment
+> État du projet au **05/09/2026**. Ce fichier résume où on en est, comment
 > relancer, et ce qui reste à faire — pour reprendre le travail sans rien perdre.
 
 ---
@@ -21,10 +21,11 @@ dans `.venv`.
 | **Challenge prop firm** | ✅ | verdict RÉUSSI/ÉCHOUÉ, 4 presets |
 | **Dimensionnement contrats** | ✅ | `size_for_challenge` : nb contrats max sous les règles de risque |
 | **Signal live (démo/VPS)** | ✅ | `live.py` + CLI `signal --watch` : LONG/SHORT/FLAT + stop/target |
+| **Watch multi-actif (démo)** | ✅ | `live.INSTRUMENTS` + CLI `watch --every` : or (Ichimoku) + nasdaq (RSI mean-rev) |
 | **Notifications Telegram** | ✅ | `notify.py` + `signal --telegram` : envoi des signaux frais (dédup), non déployé |
 | Graphiques terminal (textual-plotext) | ✅ | widgets auto-dimensionnés |
 | TUI Textual (dense, mono-écran) | ✅ | montage + interactions testés |
-| CLI (`quote`/`backtest`/`screen`/`prop`/`scalp`/`signal`) | ✅ | testé ; UTF-8 forcé, plus besoin de `PYTHONIOENCODING` |
+| CLI (`quote`/`backtest`/`screen`/`prop`/`scalp`/`signal`/`watch`) | ✅ | testé ; UTF-8 forcé, plus besoin de `PYTHONIOENCODING` |
 | Tests unitaires (pytest) | ✅ | 43 tests, hors-ligne, `tests/` |
 
 ---
@@ -108,7 +109,9 @@ quantterm/
 - Force de tendance : `adx` (+DI / -DI / ADX) · Utilitaires : `returns`
 
 **Stratégies** (`backtest.STRATEGIES`)
-`sma`, `rsi`, `macd`, `bollinger`, `donchian`, `adx`, `hold`
+`sma`, `rsi`, `rsi_meanrev`, `macd`, `bollinger`, `donchian`, `adx`, `ichimoku`, `hold`
+- `rsi_meanrev` = mean-reversion indices : **fade** RSI 25/75, **exit au retour à la
+  moyenne** (pas de target ATR). Candidat scalp NQ=F (cf. Recherche indices 05/09).
 
 **Oscillateurs affichables dans la TUI** (`widgets.OSCILLATORS`)
 `rsi`, `macd`, `stochastic`, `atr`, `cci`, `mfi`, `williams`, `adx`
@@ -185,6 +188,33 @@ Script de validation : `scratchpad/validate.py` (session).
 
 ---
 
+## 🔬 Recherche indices (05/09/2026) — scalp mean-reversion NQ/ES
+
+Objectif : trouver un edge scalp sur **Nasdaq (NQ=F)** et **SP500 (ES=F)** pour trader
+plus que l'or. Même méthode anti-illusion (params figés, walk-forward, stress coûts).
+
+**Enseignement clé — l'exit compte autant que l'entrée :** un stop/**target ATR** (exit
+momentum) **détruit** le mean-reversion. Le bon moteur est `run` avec **exit au retour à
+la moyenne** (RSI recroise 50). Avec ça :
+- **NQ=F 5m** RSI 25/75 : brut +9.8 %, **point mort ~5.6 bps/côté** (coût réel ~0.5-1 bp
+  → grosse marge), Sharpe élevé, **WF 5/6**, et **toute la famille RSI** (20/80…30/70)
+  positive → pas un point fragile isolé. **Meilleur candidat scalp indices trouvé.**
+- **ES=F 5m** : bien plus faible (point mort ~2 bps, WF 4/6) → **pas retenu**.
+
+**Contrôle robustesse (1h ~2 ans, comme l'or) : 🟡 confirmation faible.**
+NQ 1h : RSI 25/75 seulement +4.8 % / WF 4/8, et **30/70 fait -9 %** (sensible aux params) ;
+ES 1h l'inverse (+5.8 %, WF 6/8). Quand l'actif gagnant dépend de l'horizon = edge **fin,
+proche du bruit**. Rien de comparable à l'or (1h : +17.8 %, WF 6/8).
+
+**Décision :** on câble **NQ=F en DÉMO** (RSI 25/75, params figés) via le watch multi-actif,
+**pas de réel** — mêmes règles que l'or. ES en attente. Verdict : 🟡 **candidat démo, non
+validé multi-régime.** Scripts : `scratchpad/research_indices*.py` (session).
+
+**Portefeuille démo actuel** (`live.INSTRUMENTS`) : `GC=F`→`ichimoku`, `NQ=F`→`rsi_meanrev`.
+Lancer : `python -m quantterm watch --every 60` (ou `--telegram`).
+
+---
+
 ## ⚠️ Pièges connus / décisions
 
 - **Graphiques TUI = widgets `textual-plotext`**, jamais du texte plotext fixe dans
@@ -207,6 +237,10 @@ Script de validation : `scratchpad/validate.py` (session).
   rencontré et corrigé pendant la recherche : Ichimoku passait de 28 à 3000+ trades.
 - Pour le verdict prop firm sur du scalp : **rééchantillonner l'equity intra-barre en
   journalier** (`.resample("1D").last()`) avant `propfirm.evaluate` (qui raisonne par jour).
+- **Mean-reversion ≠ exit ATR** : appliquer un stop/**target ATR** (`run_intrabar`) à une
+  stratégie de réversion la fait paraître nulle/négative — l'edge est dans le **retour à
+  la moyenne**, pas dans un objectif de continuation. Utiliser `run` avec exit sur retour
+  médian. Découvert en cherchant l'edge indices (cf. Recherche indices 05/09).
 
 ---
 
@@ -220,6 +254,8 @@ Script de validation : `scratchpad/validate.py` (session).
 - [ ] **Optimisation de paramètres** (grid search sur les stratégies)
 - [x] **Dimensionnement prop firm** (`size_for_challenge` : capital + règles → nb contrats + verdict)
 - [x] **Signal live** (`live.py` + CLI `signal --watch`) pour test démo sur VPS
+- [x] **Watch multi-actif** (`live.INSTRUMENTS` + CLI `watch`) : or + nasdaq, chacun sa stratégie
+- [x] **Recherche edge indices** (NQ/ES mean-rev) → 🟡 NQ démo, cf. Recherche indices 05/09
 - [ ] **Exécution auto** (bot) : connexion broker/API pour passer les ordres (aujourd'hui : signal manuel seulement)
 - [x] **Validation robuste de l'edge** (stabilité temporelle + stress coûts + ES/NQ) → 🟡 GC seul, fragile (cf. section Validation 01/09)
 - [ ] **Valider hors yfinance** (données intraday propres, ex. Binance/broker) — l'edge sur + de régimes
@@ -235,6 +271,8 @@ Script de validation : `scratchpad/validate.py` (session).
 ## 🧾 Historique git
 
 ```
+(à venir) Edge indices mean-rev (NQ démo) + watch multi-actif or/nasdaq
+6b5aaa1  Mise a jour du point de sauvegarde (Telegram, UTF-8, validation edge)
 e514393  Signaux Telegram, fix UTF-8 CLI + validation robuste de l'edge
 a7d18e3  Edge scalp Ichimoku (or) : moteur intra-barre, dimensionnement prop firm, signal live
 9a211e1  Mise a jour du point de sauvegarde (UI Bloomberg, prop firm, 35 tests)

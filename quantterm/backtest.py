@@ -123,6 +123,28 @@ def rsi_reversion(window: int = 14, low: float = 30, high: float = 70) -> Strate
     return strat
 
 
+def rsi_meanrev(window: int = 14, low: float = 25, high: float = 75, mid: float = 50) -> Strategy:
+    """Mean-reversion RSI (indices) : **fade** les extrêmes — long en survente
+    (RSI < ``low``), short en surachat (RSI > ``high``) — et sort au **retour à la
+    moyenne** (RSI recroise ``mid``), pas sur un target ATR.
+
+    À NE PAS confondre avec le suivi de tendance : ici l'edge vient de la réversion,
+    donc l'exit est le retour vers la médiane, jamais un objectif de continuation.
+    Edge candidat identifié sur **NQ=F 5m** (indices = mean-reverting). Le momentum
+    (Ichimoku) y perd ; réciproquement cette stratégie perd sur l'or.
+    """
+    def strat(df: pd.DataFrame) -> pd.Series:
+        r = ind.rsi(df["Close"], window)
+        pos = pd.Series(np.nan, index=df.index)
+        pos[r < low] = 1.0
+        pos[r > high] = -1.0
+        # sortie dès que le RSI repasse la médiane (réversion réalisée)
+        pos[(r.shift(1) < mid) & (r >= mid)] = 0.0
+        pos[(r.shift(1) > mid) & (r <= mid)] = 0.0
+        return pos.ffill().fillna(0.0)
+    return strat
+
+
 def macd_cross() -> Strategy:
     """Long quand la ligne MACD passe au-dessus de sa ligne de signal."""
     def strat(df: pd.DataFrame) -> pd.Series:
@@ -192,6 +214,7 @@ def buy_and_hold() -> Strategy:
 STRATEGIES: dict[str, Strategy] = {
     "sma": sma_crossover(),
     "rsi": rsi_reversion(),
+    "rsi_meanrev": rsi_meanrev(),
     "macd": macd_cross(),
     "bollinger": bollinger_breakout(),
     "donchian": donchian_breakout(),
