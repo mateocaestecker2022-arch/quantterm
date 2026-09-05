@@ -271,7 +271,7 @@ Lancer : `python -m quantterm watch --every 60` (ou `--telegram`).
 ## 🧾 Historique git
 
 ```
-(à venir) Edge indices mean-rev (NQ démo) + watch multi-actif or/nasdaq
+06c866c  Edge indices mean-rev (NQ demo) + watch multi-actif or/nasdaq
 6b5aaa1  Mise a jour du point de sauvegarde (Telegram, UTF-8, validation edge)
 e514393  Signaux Telegram, fix UTF-8 CLI + validation robuste de l'edge
 a7d18e3  Edge scalp Ichimoku (or) : moteur intra-barre, dimensionnement prop firm, signal live
