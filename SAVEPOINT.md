@@ -22,6 +22,8 @@ dans `.venv`.
 | **Dimensionnement contrats** | ✅ | `size_for_challenge` : nb contrats max sous les règles de risque |
 | **Signal live (démo/VPS)** | ✅ | `live.py` + CLI `signal --watch` : LONG/SHORT/FLAT + stop/target |
 | **Watch multi-actif (démo)** | ✅ | `live.INSTRUMENTS` + CLI `watch --every` : or (Ichimoku) + nasdaq (RSI mean-rev) |
+| **Exécution auto MT5 (Python)** | ✅ | `broker_mt5.py` + `trader.py` + CLI `trade` : sizing risque 1 %, dry-run, magic 770077 (setup Windows-MT5) |
+| **Exécution auto MT5 (EA MQL5)** | ✅ | `mql5/QuantTerm.mq5` : **voie VPS** (EA dans le terminal, comme les autres algos) |
 | **Notifications Telegram** | ✅ | `notify.py` + `signal --telegram` : envoi des signaux frais (dédup), non déployé |
 | Graphiques terminal (textual-plotext) | ✅ | widgets auto-dimensionnés |
 | TUI Textual (dense, mono-écran) | ✅ | montage + interactions testés |
@@ -73,10 +75,16 @@ quantterm/
 ├── indicators.py   # 21 indicateurs techniques
 ├── backtest.py     # moteur vectorisé (run) + événementiel intra-barre (run_intrabar) + 8 stratégies
 ├── propfirm.py     # évaluation challenge prop firm (règles + presets) + dimensionnement contrats
-├── live.py         # signal temps réel LONG/SHORT/FLAT (from_df pur + compute réseau)
+├── live.py         # signal temps réel LONG/SHORT/FLAT (from_df pur + compute réseau) + INSTRUMENTS
+├── broker_mt5.py   # pont MetaTrader5 (connexion path+login, rates, ordres) + sizing risque (compute_lot)
+├── trader.py       # boucle exécution auto : décision par instrument + dry-run
 ├── notify.py       # notifications Telegram (TelegramNotifier, config par variables d'env)
 ├── screener.py     # scan d'univers + filtres
 └── charts.py       # ancien rendu plotext texte (conservé, plus utilisé par la TUI)
+
+mql5/
+├── QuantTerm.mq5   # Expert Advisor (voie VPS) : Ichimoku (or) + RSI mean-rev (nasdaq)
+└── README.md       # compilation MetaEditor + attache aux graphiques XAUUSD/NAS100
 ```
 
 **Conventions clés :**
@@ -215,6 +223,39 @@ Lancer : `python -m quantterm watch --every 60` (ou `--telegram`).
 
 ---
 
+## 🤖 Exécution auto MT5 (05/09/2026) — démo, VPS IONOS
+
+**Deux voies d'exécution, même logique/sizing :**
+- **VPS IONOS `87.106.34.128` → EA MQL5** (`mql5/QuantTerm.mq5`). C'est la voie retenue :
+  le VPS n'a **aucun Python Wine**, ses 2 algos sont des **EA dans le terminal** (services
+  systemd `mt5b`/`mt5c`). On attache donc l'EA au terminal **`mt5c` (Blueberry, le compte
+  démo)** sur les graphiques **XAUUSD** (mode Ichimoku) et **NAS100** (mode RSI mean-rev).
+  Compile + attache : voir `mql5/README.md`. DryRun d'abord, magic 770077.
+- **Setup Windows-MT5 → bot Python** (`trade`), ci-dessous, si un jour Python pilote MT5
+  directement. Sur le VPS il n'est PAS utilisable (pas de Python Wine).
+
+Bot Python d'exécution des signaux (`python -m quantterm trade`) :
+
+- **Feed cohérent** : le signal est calculé sur les **bougies MT5** (`copy_rates`), pas
+  yfinance → signal et exécution sur le **même prix** (cf. piège futures↔CFD ci-dessous).
+- **Sizing risque fixe** (`compute_lot`) : lot = `balance × 1 %` / (dist. stop en ATR ×
+  valeur du tick). Balance lue dans le compte. Arrondi au step **inférieur**, skip si
+  `< volume_min`. Testé (`tests/test_broker_mt5.py`).
+- **Sorties** : or (momentum) = **SL+TP ATR** sur l'ordre ; nasdaq (mean-rev) = **SL
+  protectif** + fermeture au **retour à la moyenne** (signal FLAT), géré par la boucle.
+- **Sécurité** : `dry_run` par défaut (rien envoyé, tout loggé) ; `--live` pour armer.
+  **Magic 770077** dédié → ne touche jamais aux 2 autres algos.
+- **Config par env** (jamais en CLI) : `QUANTTERM_MT5_PATH` / `_LOGIN` / `_PASSWORD` /
+  `_SERVER`. Symboles broker : **XAUUSD** (or), **NAS100** (nasdaq).
+
+Lancer : `python -m quantterm trade` (dry-run) puis `trade --every 60 --live` (armé).
+
+> ⚠️ **Non validé sur le feed broker.** L'edge a été mesuré sur GC=F/NQ=F (futures) ;
+> XAUUSD (spot) et NAS100 (CFD) sont **corrélés mais différents** (spread, sessions).
+> D'où : **démo uniquement**, observer que l'edge tient sur CE feed avant tout réel.
+
+---
+
 ## ⚠️ Pièges connus / décisions
 
 - **Graphiques TUI = widgets `textual-plotext`**, jamais du texte plotext fixe dans
@@ -237,6 +278,11 @@ Lancer : `python -m quantterm watch --every 60` (ou `--telegram`).
   rencontré et corrigé pendant la recherche : Ichimoku passait de 28 à 3000+ trades.
 - Pour le verdict prop firm sur du scalp : **rééchantillonner l'equity intra-barre en
   journalier** (`.resample("1D").last()`) avant `propfirm.evaluate` (qui raisonne par jour).
+- **MT5 = 1 terminal par processus** : chaque compte a son terminal + son process Python
+  (`initialize(path=...) + login(...)`). Le bot tourne dans SON process, magic 770077, et
+  `positions_get` est filtré par magic → il ne ferme jamais les trades des autres algos.
+- **Feed futures ↔ broker** : GC=F/NQ=F (yfinance, futures) ≠ XAUUSD/NAS100 (broker, spot/CFD).
+  Le bot calcule donc le signal sur les **rates MT5**, pas yfinance. Ne PAS mélanger les deux.
 - **Mean-reversion ≠ exit ATR** : appliquer un stop/**target ATR** (`run_intrabar`) à une
   stratégie de réversion la fait paraître nulle/négative — l'edge est dans le **retour à
   la moyenne**, pas dans un objectif de continuation. Utiliser `run` avec exit sur retour
@@ -256,7 +302,8 @@ Lancer : `python -m quantterm watch --every 60` (ou `--telegram`).
 - [x] **Signal live** (`live.py` + CLI `signal --watch`) pour test démo sur VPS
 - [x] **Watch multi-actif** (`live.INSTRUMENTS` + CLI `watch`) : or + nasdaq, chacun sa stratégie
 - [x] **Recherche edge indices** (NQ/ES mean-rev) → 🟡 NQ démo, cf. Recherche indices 05/09
-- [ ] **Exécution auto** (bot) : connexion broker/API pour passer les ordres (aujourd'hui : signal manuel seulement)
+- [x] **Exécution auto MT5** (`broker_mt5.py` + `trader.py` + CLI `trade`) : démo, sizing risque 1 %, dry-run/magic
+- [ ] **Confirmer l'edge sur le feed broker** (XAUUSD/NAS100) avant tout passage réel
 - [x] **Validation robuste de l'edge** (stabilité temporelle + stress coûts + ES/NQ) → 🟡 GC seul, fragile (cf. section Validation 01/09)
 - [ ] **Valider hors yfinance** (données intraday propres, ex. Binance/broker) — l'edge sur + de régimes
 - [ ] Intégrer le scalp intra-barre dans la **TUI** (aujourd'hui CLI + module uniquement)

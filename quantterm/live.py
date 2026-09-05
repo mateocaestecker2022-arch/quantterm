@@ -27,11 +27,16 @@ INSTRUMENTS: list[dict] = [
     {
         "ticker": "GC=F", "strategy": "ichimoku", "interval": "5m",
         "k_stop": 2.0, "k_target": 3.0,
+        # Exécution MT5 (démo) : symbole broker + sizing risque fixe.
+        "mt5_symbol": "XAUUSD", "mt5_timeframe": "M5", "risk_pct": 0.01,
+        "exit_on_flat": False,   # momentum : sortie gérée par SL/TP côté broker
         "note": "or · momentum Ichimoku · edge 🟡 retenu (GC seul)",
     },
     {
         "ticker": "NQ=F", "strategy": "rsi_meanrev", "interval": "5m",
         "k_stop": 2.0, "k_target": 2.0,
+        "mt5_symbol": "NAS100", "mt5_timeframe": "M5", "risk_pct": 0.01,
+        "exit_on_flat": True,    # mean-rev : sortie au retour à la moyenne (signal FLAT)
         "note": "nasdaq · mean-reversion RSI 25/75 · DÉMO 🟡 (edge non confirmé multi-régime)",
     },
 ]

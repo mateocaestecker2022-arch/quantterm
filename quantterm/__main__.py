@@ -74,6 +74,12 @@ def main() -> None:
                      help="envoie les signaux frais sur Telegram "
                           "(config via QUANTTERM_TG_TOKEN / QUANTTERM_TG_CHAT)")
 
+    p_tr = sub.add_parser("trade", help="Exécution auto MT5 (démo) — dry-run par défaut")
+    p_tr.add_argument("--every", type=int, default=0,
+                      help="rafraîchit toutes les N secondes en boucle (0 = une seule fois)")
+    p_tr.add_argument("--live", action="store_true",
+                      help="ARME l'envoi réel des ordres (sinon dry-run : rien n'est envoyé)")
+
     p_pf = sub.add_parser("prop", help="Évaluation challenge prop firm")
     p_pf.add_argument("ticker")
     p_pf.add_argument("--strategy", default="sma")
@@ -226,6 +232,38 @@ def main() -> None:
         else:
             print(f"Watch multi-actif [{tickers}]\n")
             cycle()
+    elif args.cmd == "trade":
+        import time
+
+        from . import live, trader
+        from .broker_mt5 import MT5Broker
+
+        MAGIC = 770077
+        dry = not args.live
+        mode = "DRY-RUN (rien envoyé)" if dry else "⚠️  LIVE (ordres réels)"
+        symbols = ", ".join(i["mt5_symbol"] for i in live.INSTRUMENTS)
+        broker = MT5Broker(magic=MAGIC)
+        try:
+            broker.connect()
+        except Exception as exc:
+            sys.exit(f"[MT5] connexion impossible : {exc}")
+        try:
+            bal = broker.balance()
+            print(f"Trade MT5 [{symbols}] magic {MAGIC} — {mode}\n"
+                  f"Compte connecté, balance {bal:,.2f}\n")
+            if args.every > 0:
+                print(f"Boucle toutes les {args.every}s (Ctrl+C pour arrêter)\n")
+                try:
+                    while True:
+                        trader.run_once(broker, dry_run=dry)
+                        print()
+                        time.sleep(args.every)
+                except KeyboardInterrupt:
+                    print("\nArrêt du trading auto.")
+            else:
+                trader.run_once(broker, dry_run=dry)
+        finally:
+            broker.shutdown()
     elif args.cmd == "prop":
         from . import backtest, data, propfirm
 
