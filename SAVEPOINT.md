@@ -23,7 +23,7 @@ dans `.venv`.
 | **Signal live (démo/VPS)** | ✅ | `live.py` + CLI `signal --watch` : LONG/SHORT/FLAT + stop/target |
 | **Watch multi-actif (démo)** | ✅ | `live.INSTRUMENTS` + CLI `watch --every` : or (Ichimoku) + nasdaq (RSI mean-rev) |
 | **Exécution auto MT5 (Python)** | ✅ | `broker_mt5.py` + `trader.py` + CLI `trade` : sizing risque 1 %, dry-run, magic 770077 (setup Windows-MT5) |
-| **Exécution auto MT5 (EA MQL5)** | ✅ | `mql5/QuantTerm.mq5` : **voie VPS** (EA dans le terminal, comme les autres algos) |
+| **Exécution auto MT5 (EA MQL5)** | ✅ | `mql5/QuantTerm.mq5` : **voie VPS** ; **attaché en DryRun** le 06/09 (XAUUSD Ichimoku + NAS100 RSI) |
 | **Notifications Telegram** | ✅ | `notify.py` + `signal --telegram` : envoi des signaux frais (dédup), non déployé |
 | Graphiques terminal (textual-plotext) | ✅ | widgets auto-dimensionnés |
 | TUI Textual (dense, mono-écran) | ✅ | montage + interactions testés |
@@ -249,6 +249,14 @@ Bot Python d'exécution des signaux (`python -m quantterm trade`) :
   `_SERVER`. Symboles broker : **XAUUSD** (or), **NAS100** (nasdaq).
 
 Lancer : `python -m quantterm trade` (dry-run) puis `trade --every 60 --live` (armé).
+
+**MàJ 06/09/2026 — EA attaché en DryRun.** L'EA MQL5 (`mql5/QuantTerm.mq5`, `.ex5`
+déjà compilé) est désormais **attaché sur le VPS en `DryRun=true`** : XAUUSD en mode
+`MOMENTUM_ICHIMOKU` + NAS100 en mode `MEANREV_RSI`, magic 770077. Il **logue** les
+`[DRY-RUN] OPEN …` aux transitions mais **n'envoie aucun ordre**. Phase d'observation :
+vérifier que l'edge tient sur CE feed avant d'armer (`DryRun=false`). ⚠️ Si armé un jour,
+**neutraliser `ea_watchdog`** pour ce compte (l'EA ne report pas au backend → sinon restart
+en boucle). Déploiement/attache détaillés : voir `ops/VPS_MT5.md`.
 
 > ⚠️ **Non validé sur le feed broker.** L'edge a été mesuré sur GC=F/NQ=F (futures) ;
 > XAUUSD (spot) et NAS100 (CFD) sont **corrélés mais différents** (spread, sessions).
