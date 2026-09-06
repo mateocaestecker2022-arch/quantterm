@@ -23,7 +23,7 @@ dans `.venv`.
 | **Signal live (démo/VPS)** | ✅ | `live.py` + CLI `signal --watch` : LONG/SHORT/FLAT + stop/target |
 | **Watch multi-actif (démo)** | ✅ | `live.INSTRUMENTS` + CLI `watch --every` : or (Ichimoku) + nasdaq (RSI mean-rev) |
 | **Exécution auto MT5 (Python)** | ✅ | `broker_mt5.py` + `trader.py` + CLI `trade` : sizing risque 1 %, dry-run, magic 770077 (setup Windows-MT5) |
-| **Exécution auto MT5 (EA MQL5)** | ✅ | `mql5/QuantTerm.mq5` : **voie VPS** ; **attaché en DryRun** le 06/09 (XAUUSD Ichimoku + NAS100 RSI) |
+| **Exécution auto MT5 (EA MQL5)** | ✅ | `mql5/QuantTerm.mq5` : **voie VPS** ; **ARMÉ sur démo** le 06/09 (`DryRun=false`, terminal dédié :101, XAUUSD Ichimoku + NAS100 RSI) |
 | **Notifications Telegram** | ✅ | `notify.py` + `signal --telegram` : envoi des signaux frais (dédup), non déployé |
 | Graphiques terminal (textual-plotext) | ✅ | widgets auto-dimensionnés |
 | TUI Textual (dense, mono-écran) | ✅ | montage + interactions testés |
@@ -250,13 +250,14 @@ Bot Python d'exécution des signaux (`python -m quantterm trade`) :
 
 Lancer : `python -m quantterm trade` (dry-run) puis `trade --every 60 --live` (armé).
 
-**MàJ 06/09/2026 — EA attaché en DryRun.** L'EA MQL5 (`mql5/QuantTerm.mq5`, `.ex5`
-déjà compilé) est désormais **attaché sur le VPS en `DryRun=true`** : XAUUSD en mode
-`MOMENTUM_ICHIMOKU` + NAS100 en mode `MEANREV_RSI`, magic 770077. Il **logue** les
-`[DRY-RUN] OPEN …` aux transitions mais **n'envoie aucun ordre**. Phase d'observation :
-vérifier que l'edge tient sur CE feed avant d'armer (`DryRun=false`). ⚠️ Si armé un jour,
-**neutraliser `ea_watchdog`** pour ce compte (l'EA ne report pas au backend → sinon restart
-en boucle). Déploiement/attache détaillés : voir `ops/VPS_MT5.md`.
+**MàJ 06/09/2026 — EA ARMÉ sur démo.** L'EA MQL5 (`mql5/QuantTerm.mq5`, `.ex5` compilé)
+tourne sur le VPS, **`DryRun=false`** (vraies positions démo) : XAUUSD `MOMENTUM_ICHIMOKU`
++ NAS100 `MEANREV_RSI`, magic 770077. Il est **seul sur un terminal dédié** (`/opt/mt5`,
+écran :101, compte démo 12658023) → isolé des 2 autres algos. **`ea_watchdog` + `watchdog_mt5`
+neutralisés** (cron commentés, backup `/root/crontab.bak`) car l'EA ne report pas au backend ;
+keeper toujours actif. **À restaurer** après l'observation : `crontab /root/crontab.bak`.
+Objectif : collecter fills/spread/slippage/P&L réels pour juger si l'edge tient sur CE feed
+avant tout compte réel. Détails opérationnels VPS : voir `ops/VPS_MT5.md`.
 
 > ⚠️ **Non validé sur le feed broker.** L'edge a été mesuré sur GC=F/NQ=F (futures) ;
 > XAUUSD (spot) et NAS100 (CFD) sont **corrélés mais différents** (spread, sessions).
