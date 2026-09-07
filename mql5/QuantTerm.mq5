@@ -238,8 +238,15 @@ void OnTick()
    if(t == lastBar) return;    // on n'agit qu'à l'ouverture d'une nouvelle barre
    lastBar = t;
 
-   int need = SenkouB + Kijun + 20;
-   if(Bars(_Symbol, _Period) < need + 3) return;
+   // Profondeur de ffill de l'état, + portée arrière d'Ichimoku : IchimokuDirAt(s)
+   // lit jusqu'à l'indice s + Kijun + SenkouB (via sp = s + Kijun puis SenkouB).
+   // StateAt(2, lookback) atteint la barre lookback+1 -> il FAUT copier au moins
+   // lookback + Kijun + SenkouB barres, sinon dépassement de tableau (l'EA plante
+   // et cesse de trader). Ancien bug : on ne copiait que SenkouB+Kijun+23 barres.
+   int lookback = 200;                          // barres de ffill de l'état
+   int span     = Kijun + SenkouB;              // portée arrière d'Ichimoku
+   int total    = lookback + span + 5;          // barres à copier (avec marge)
+   if(Bars(_Symbol, _Period) < total) return;
 
    // ATR de la dernière barre clôturée (shift 1).
    double atrBuf[]; ArraySetAsSeries(atrBuf, true);
@@ -251,13 +258,12 @@ void OnTick()
    double H[], L[], C[], R[];
    ArraySetAsSeries(H, true); ArraySetAsSeries(L, true);
    ArraySetAsSeries(C, true); ArraySetAsSeries(R, true);
-   if(CopyHigh(_Symbol, _Period, 0, need + 3, H)  < need) return;
-   if(CopyLow(_Symbol, _Period, 0, need + 3, L)   < need) return;
-   if(CopyClose(_Symbol, _Period, 0, need + 3, C) < need) return;
+   if(CopyHigh(_Symbol, _Period, 0, total, H)  < total) return;
+   if(CopyLow(_Symbol, _Period, 0, total, L)   < total) return;
+   if(CopyClose(_Symbol, _Period, 0, total, C) < total) return;
    if(Mode == MEANREV_RSI)
-      if(CopyBuffer(rsiHandle, 0, 0, need + 3, R) < need) return;
+      if(CopyBuffer(rsiHandle, 0, 0, total, R) < total) return;
 
-   int lookback = need;
    int stateNow  = StateAt(1, H, L, C, R, lookback);   // barre clôturée
    int statePrev = StateAt(2, H, L, C, R, lookback);   // barre précédente
    bool fresh = (stateNow != statePrev);
