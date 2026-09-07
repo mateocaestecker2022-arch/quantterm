@@ -23,7 +23,7 @@ dans `.venv`.
 | **Signal live (démo/VPS)** | ✅ | `live.py` + CLI `signal --watch` : LONG/SHORT/FLAT + stop/target |
 | **Watch multi-actif (démo)** | ✅ | `live.INSTRUMENTS` + CLI `watch --every` : or (Ichimoku) + nasdaq (RSI mean-rev) |
 | **Exécution auto MT5 (Python)** | ✅ | `broker_mt5.py` + `trader.py` + CLI `trade` : sizing risque 1 %, dry-run, magic 770077 (setup Windows-MT5) |
-| **Exécution auto MT5 (EA MQL5)** | ✅ | `mql5/QuantTerm.mq5` : **voie VPS** ; **ARMÉ sur démo** le 06/09 (`DryRun=false`, terminal dédié :101, XAUUSD Ichimoku + NAS100 RSI) |
+| **Exécution auto MT5 (EA MQL5)** | ✅ | `mql5/QuantTerm.mq5` : **voie VPS** ; **ARMÉ sur démo** le 06/09 (`DryRun=false`, terminal dédié :101, XAUUSD Ichimoku + NAS100 RSI) ; **bug array out of range corrigé le 07/09** (cf. section fix ci-dessous) |
 | **Notifications Telegram** | ✅ | `notify.py` + `signal --telegram` : envoi des signaux frais (dédup), non déployé |
 | Graphiques terminal (textual-plotext) | ✅ | widgets auto-dimensionnés |
 | TUI Textual (dense, mono-écran) | ✅ | montage + interactions testés |
@@ -263,6 +263,22 @@ avant tout compte réel. Détails opérationnels VPS : voir `ops/VPS_MT5.md`.
 > XAUUSD (spot) et NAS100 (CFD) sont **corrélés mais différents** (spread, sessions).
 > D'où : **démo uniquement**, observer que l'edge tient sur CE feed avant tout réel.
 
+**MàJ 07/09/2026 — bug corrigé : l'EA ne prenait plus de position.** Symptôme : plus
+aucune position ouverte. **Cause racine** = dépassement de tableau en mode Ichimoku (or).
+`OnTick` ne copiait que `SenkouB+Kijun+23 ≈ 203` barres, mais `StateAt` remonte jusqu'à
+~200 barres (ffill de l'état) et `IchimokuDirAt(s)` lit encore `Kijun+SenkouB` barres plus
+loin (indice ~380) → **`array out of range`** dès ~24 barres clôturées sans signal Ichimoku
+→ l'EA plante sur le tick et **cesse de trader**. Intermittent (marche tant qu'un signal
+est trouvé dans les 23 dernières barres), d'où le "ça marchait puis plus rien". Le mode
+RSI (nasdaq) n'était pas touché (ne lit que `R[s]`/`R[s+1]`).
+**Fix** (commit `0636f28`) : copier `lookback + Kijun + SenkouB + marge` barres. Bornes
+revérifiées : indice max atteint 380 ≤ 384 barres copiées. ✅
+**Déploiement VPS** : `curl` du `.mq5` raw → dossier Experts du terminal `:101`, puis
+**recompilé via MetaEditor GUI (F7)** en noVNC — la compile CLI headless (`metaeditor64.exe
+/compile`) **ne fait rien** sous Wine quand le terminal tourne (cf. pièges). `QuantTerm.ex5`
+régénéré le 07/09 17:41. **À confirmer** : `DryRun=NON` + absence de `array out of range`
+dans l'onglet Experts après rechargement.
+
 ---
 
 ## ⚠️ Pièges connus / décisions
@@ -296,6 +312,18 @@ avant tout compte réel. Détails opérationnels VPS : voir `ops/VPS_MT5.md`.
   stratégie de réversion la fait paraître nulle/négative — l'edge est dans le **retour à
   la moyenne**, pas dans un objectif de continuation. Utiliser `run` avec exit sur retour
   médian. Découvert en cherchant l'edge indices (cf. Recherche indices 05/09).
+- **EA MQL5 : copier assez de barres pour le ffill.** Un indicateur qui regarde en arrière
+  (Ichimoku : `Kijun+SenkouB` barres) combiné à un ffill d'état sur `lookback` barres exige
+  de copier **`lookback + portée_indicateur + marge`** barres, sinon `array out of range`
+  qui plante l'EA en silence. Bug 07/09 (cf. section Exécution auto MT5).
+- **Compile MQL5 headless cassée sous Wine.** `wine metaeditor64.exe /compile:… /log:…`
+  rend `EXIT=0` mais **ne produit ni `.ex5` ni log** quand le terminal tourne déjà (hand-off
+  silencieux). Solution fiable : **compiler dans MetaEditor via noVNC (F7)**. Le terminal
+  recharge alors l'EA attaché automatiquement.
+- **VPS `/opt/mt5` : dossier MQL5 = celui de l'install.** Terminal lancé sans `/portable`
+  mais **un seul** dossier `Experts` (`…/Program Files/MetaTrader 5/MQL5/Experts`), pas
+  d'arbre MQL5 dans `AppData/…/MetaQuotes/Terminal`. Déposer/compiler l'EA **là**. Le prefix
+  appartient à l'utilisateur **`mt5`** → compiler via `runuser -u mt5` (pas root).
 
 ---
 
@@ -327,6 +355,9 @@ avant tout compte réel. Détails opérationnels VPS : voir `ops/VPS_MT5.md`.
 ## 🧾 Historique git
 
 ```
+0636f28  Fix EA MQL5 : dépassement de tableau en mode Ichimoku (or)
+e46cf14  SAVEPOINT: EA MQL5 armé sur démo (DryRun=false, terminal dédié :101)
+29764ba  SAVEPOINT: EA MQL5 attaché en DryRun sur le VPS (XAUUSD Ichimoku + NAS100 RSI)
 06c866c  Edge indices mean-rev (NQ demo) + watch multi-actif or/nasdaq
 6b5aaa1  Mise a jour du point de sauvegarde (Telegram, UTF-8, validation edge)
 e514393  Signaux Telegram, fix UTF-8 CLI + validation robuste de l'edge
