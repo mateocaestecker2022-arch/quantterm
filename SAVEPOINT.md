@@ -281,6 +281,45 @@ dans l'onglet Experts après rechargement.
 
 ---
 
+## 🕵️ Session 17/09/2026 — l'or ré-attaché, puis observation des résultats
+
+Suite de la panne « l'or ne trade plus » (l'EA XAUUSD avait été **retiré du graphique** par
+un `array out of range` critique le 07/09 — un `expert removed`, qu'une recompile F7 ne
+**re-attache jamais** ; il faut re-glisser l'EA à la main). Détails infra : `ops/VPS_MT5.md`
+(sessions 12/09 et 17/09). Une fois ré-attaché, deux constats successifs :
+
+**1. L'or skippait chaque signal — `SKIP: lot<volume_min (risque trop petit)`.**
+Sur XAUUSD la perte par lot est élevée ; pour ne risquer que `RiskPct=1 %`, `ComputeLot`
+demandait un lot **sous le `volume_min` du broker** → arrondi à 0 → aucun ordre. Le NAS100
+passait, l'or non. **Cause de fond : sur cette démo, le lot minimum (0.01) risque déjà plus
+que 1 % de la balance** — on ne *peut* pas trader l'or à 1 %.
+- **Règle :** `RiskPct` doit être ≥ `100 × (perte $ d'un lot 0.01) / balance`, sinon SKIP systématique.
+- **Fix appliqué (live, sans recompiler) :** monter `RiskPct` sur l'instance or (démo → objectif
+  = confirmer l'edge, pas préserver le capital). Monter `RiskPct` ne rend pas le trade plus
+  risqué que le lot mini l'impose déjà ; ça débloque juste l'ordre.
+
+**2. Résultats live décevants (« beaucoup de pertes, ratio pas bon ») — mise en perspective :**
+- **Le momentum PERD la majorité de ses trades par construction.** Payoff `KTarget/KStop = 3/2 = 1.5`
+  → win rate d'équilibre = `stop/(stop+target) = 2/5 = 40 %`. Une version qui marche perd donc
+  ~55-60 % du temps ; ce qui compte est l'**espérance** (somme des R), pas le nombre de perdants.
+- ⚠️ **Écart de fidélité recherche↔live trouvé :** le backtest `run_intrabar` a un **time-stop**
+  `max_hold=48` barres (sort un trade qui stagne au bout de ~4 h en M5). **L'EA MQL5 n'a PAS ce
+  time-stop** — il tient jusqu'à SL / TP / signal inverse. Conséquence : en live, les trades morts
+  finissent en **stop plein** au lieu d'être coupés tôt → **le live perd mécaniquement plus que
+  le backtest.** Candidat sérieux au « ratio pas bon ». → **à porter dans l'EA** (compter les
+  barres depuis l'entrée, fermer à `max_hold`).
+- **Échantillon trop petit :** quelques jours = bruit. Il faut des dizaines à centaines de trades.
+- **Feed différent + coûts réels :** edge mesuré sur GC=F futures à ~1 bp ; live sur XAUUSD spot
+  Blueberry, spread + slippage **> 1 bp**. Le point mort de l'edge est ~5 bps round-trip (cf.
+  Validation 01/09) → marge mince, sensible au coût réel.
+
+**Verdict provisoire :** ne rien conclure encore — l'écart du time-stop fausse le live et
+l'échantillon est trop court. **Prochaine action décisive : MT5 Strategy Tester sur XAUUSD M5,
+plusieurs mois, avec le spread réel du broker** → vraie mesure de l'espérance/DD sur CE feed,
+au lieu de juger une poignée de trades démo.
+
+---
+
 ## ⚠️ Pièges connus / décisions
 
 - **Graphiques TUI = widgets `textual-plotext`**, jamais du texte plotext fixe dans
@@ -316,6 +355,16 @@ dans l'onglet Experts après rechargement.
   (Ichimoku : `Kijun+SenkouB` barres) combiné à un ffill d'état sur `lookback` barres exige
   de copier **`lookback + portée_indicateur + marge`** barres, sinon `array out of range`
   qui plante l'EA en silence. Bug 07/09 (cf. section Exécution auto MT5).
+- **`array out of range` = erreur CRITIQUE en MQL5 → MT5 RETIRE l'EA du graphique**
+  (log `expert … removed`), ce n'est pas une simple interruption de tick. Une recompile (F7)
+  ne **re-attache jamais** un EA déjà retiré — elle recharge seulement les graphiques qui le
+  portent encore. Après un tel crash : re-glisser l'EA à la main. (Cf. session 17/09.)
+- **Sizing risque fixe : lot mini > budget de risque = SKIP silencieux.** Sur un actif à
+  forte perte/lot (l'or), `RiskPct` trop bas rend `ComputeLot < volume_min` → 0 → aucun ordre,
+  alors qu'un autre actif passe. Régle : `RiskPct ≥ 100 × (perte $ du lot mini) / balance`.
+- **Fidélité recherche↔EA : le time-stop `max_hold=48` de `run_intrabar` N'EST PAS porté dans
+  l'EA MQL5.** L'EA tient jusqu'à SL/TP/signal inverse → les trades qui stagnent finissent en
+  stop plein, donc le live perd plus que le backtest. À porter dans l'EA. (Cf. session 17/09.)
 - **Compile MQL5 headless cassée sous Wine.** `wine metaeditor64.exe /compile:… /log:…`
   rend `EXIT=0` mais **ne produit ni `.ex5` ni log** quand le terminal tourne déjà (hand-off
   silencieux). Solution fiable : **compiler dans MetaEditor via noVNC (F7)**. Le terminal
@@ -341,6 +390,8 @@ dans l'onglet Experts après rechargement.
 - [x] **Recherche edge indices** (NQ/ES mean-rev) → 🟡 NQ démo, cf. Recherche indices 05/09
 - [x] **Exécution auto MT5** (`broker_mt5.py` + `trader.py` + CLI `trade`) : démo, sizing risque 1 %, dry-run/magic
 - [ ] **Confirmer l'edge sur le feed broker** (XAUUSD/NAS100) avant tout passage réel
+- [ ] **Porter le time-stop `max_hold` dans l'EA MQL5** (fidélité `run_intrabar`, cf. session 17/09)
+- [ ] **Strategy Tester XAUUSD M5 spread réel** (mesurer l'espérance sur le feed broker, cf. session 17/09)
 - [x] **Validation robuste de l'edge** (stabilité temporelle + stress coûts + ES/NQ) → 🟡 GC seul, fragile (cf. section Validation 01/09)
 - [ ] **Valider hors yfinance** (données intraday propres, ex. Binance/broker) — l'edge sur + de régimes
 - [ ] Intégrer le scalp intra-barre dans la **TUI** (aujourd'hui CLI + module uniquement)
